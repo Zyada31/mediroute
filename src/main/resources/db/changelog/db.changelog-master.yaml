@@ -1,0 +1,8 @@
+databaseChangeLog:
+  - changeSet:
+      id: 1
+      author: your_name
+      changes:
+        - sqlFile:
+            path: db/changelog/create-tables.sql
+            relativeToChangelogFile: true
