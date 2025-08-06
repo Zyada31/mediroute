@@ -1,4 +1,4 @@
-package com.mediroute.DTO;
+package com.mediroute.dto;
 
 import java.time.LocalDateTime;
 import java.util.List;

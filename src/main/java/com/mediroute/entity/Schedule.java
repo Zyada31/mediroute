@@ -6,6 +6,7 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 
 @Entity
 @Data
@@ -27,4 +28,7 @@ public class Schedule {
     @ManyToOne
     @JoinColumn(name = "assigned_driver_id")
     private Driver assignedDriver;
+
+    @Column(name = "created_at")
+    private LocalDateTime createdAt = LocalDateTime.now();
 }

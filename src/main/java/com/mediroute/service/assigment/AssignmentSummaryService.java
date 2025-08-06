@@ -1,9 +1,12 @@
-package com.mediroute.service;
+package com.mediroute.service.assigment;
 
-import com.mediroute.DTO.DriverRideSummary;
+import com.mediroute.dto.DriverRideSummary;
 import com.mediroute.entity.Ride;
 import com.mediroute.repository.RideRepository;
+import com.mediroute.service.parser.EnhancedExcelRideParser;
 import lombok.RequiredArgsConstructor;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
@@ -13,6 +16,7 @@ import java.util.stream.Collectors;
 @Service
 @RequiredArgsConstructor
 public class AssignmentSummaryService {
+    Logger log = LoggerFactory.getLogger(AssignmentSummaryService.class);
 
     private final RideRepository rideRepository;
 

@@ -72,7 +72,7 @@
 		<dependency>
 			<groupId>org.apache.poi</groupId>
 			<artifactId>poi</artifactId>
-			<version>5.2.3</version>
+			<version>5.4.1</version>
 		</dependency>
 		<dependency>
 			<groupId>org.apache.poi</groupId>
@@ -84,6 +84,13 @@
 			<groupId>com.google.ortools</groupId>
 			<artifactId>ortools-java</artifactId>
 			<version>9.14.6206</version>
+		</dependency>
+		<!-- https://mvnrepository.com/artifact/ch.qos.logback/logback-classic -->
+		<dependency>
+			<groupId>ch.qos.logback</groupId>
+			<artifactId>logback-classic</artifactId>
+			<version>1.5.18</version>
+			<scope>compile</scope>
 		</dependency>
 	</dependencies>
 
@@ -119,6 +126,20 @@
 				<version>3.2.2</version>
 				<!-- Removed -javaagent configuration -->
 			</plugin>
+
+					<plugin>
+						<groupId>org.springframework.boot</groupId>
+						<artifactId>spring-boot-maven-plugin</artifactId>
+					</plugin>
+			<plugin>
+				<groupId>org.liquibase</groupId>
+				<artifactId>liquibase-maven-plugin</artifactId>
+				<version>4.33.0</version>
+				<configuration>
+					<propertyFile>src/main/resources/liquibase.properties</propertyFile>
+				</configuration>
+			</plugin>
+
 		</plugins>
 	</build>
 	<repositories>

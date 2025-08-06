@@ -1,8 +1,18 @@
 databaseChangeLog:
   - changeSet:
-      id: 1
-      author: your_name
+      id: 001-baseline-schema
+      author: Semere
       changes:
         - sqlFile:
-            path: db/changelog/create-tables.sql
+            path: baseline-schema.sql
             relativeToChangelogFile: true
+            endDelimiter: ";"
+            splitStatements: true
+            stripComments: true
+#  - changeSet:
+#      id: 004-fix-assignment-audit-id
+#      author: Semere
+#      changes:
+#        - sqlFile:
+#            path: 004-fix-assignment-audit-id.sql
+#            relativeToChangelogFile: true

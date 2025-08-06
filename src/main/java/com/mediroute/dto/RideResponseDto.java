@@ -1,4 +1,4 @@
-package com.mediroute.DTO;
+package com.mediroute.dto;
 
 import lombok.AllArgsConstructor;
 import lombok.Getter;

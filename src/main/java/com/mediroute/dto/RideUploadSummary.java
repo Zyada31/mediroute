@@ -1,4 +1,4 @@
-package com.mediroute.DTO;
+package com.mediroute.dto;
 
 public record RideUploadSummary(
         int uploaded,

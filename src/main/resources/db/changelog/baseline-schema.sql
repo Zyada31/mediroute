@@ -1,0 +1,656 @@
+-- ============================
+-- Fresh Medical Transport Database Schema
+-- ============================
+
+-- ============================
+-- ENUMs
+-- ============================
+DO $$ BEGIN
+    CREATE TYPE ride_status AS ENUM (
+        'REQUESTED',        -- Initial request received
+        'SCHEDULED',        -- Ride scheduled but not assigned
+        'ASSIGNED',         -- Assigned to driver(s)
+        'CONFIRMED',        -- Driver confirmed assignment
+        'IN_PROGRESS',      -- Pickup completed, en route
+        'AT_DESTINATION',   -- Arrived at appointment
+        'WAITING',          -- Waiting during appointment
+        'RETURNING',        -- Return journey started
+        'COMPLETED',        -- Ride fully completed
+        'CANCELLED',        -- Cancelled before completion
+        'NO_SHOW',          -- Patient didn't show up
+        'DELAYED'           -- Running behind schedule
+    );
+EXCEPTION WHEN duplicate_object THEN null;
+END $$;
+
+DO $$ BEGIN
+    CREATE TYPE vehicle_type_enum AS ENUM (
+        'SEDAN',
+        'VAN',
+        'WHEELCHAIR_VAN',
+        'STRETCHER_VAN',
+        'AMBULANCE'
+    );
+EXCEPTION WHEN duplicate_object THEN null;
+END $$;
+
+DO $$ BEGIN
+    CREATE TYPE ride_type_enum AS ENUM (
+        'ONE_WAY',           -- Single trip from A to B
+        'ROUND_TRIP',        -- A to B, wait, B to A (same driver)
+        'PICKUP_ONLY',       -- Just pickup leg of a longer journey
+        'DROPOFF_ONLY'       -- Just dropoff leg of a longer journey
+    );
+EXCEPTION WHEN duplicate_object THEN null;
+END $$;
+
+DO $$ BEGIN
+    CREATE TYPE priority_enum AS ENUM (
+        'EMERGENCY',         -- Life-threatening, immediate response
+        'URGENT',           -- Same day, high importance (dialysis, chemo)
+        'ROUTINE'           -- Regular appointments, flexible timing
+    );
+EXCEPTION WHEN duplicate_object THEN null;
+END $$;
+
+DO $$ BEGIN
+    CREATE TYPE mobility_level_enum AS ENUM (
+        'INDEPENDENT',      -- Can walk unassisted
+        'ASSISTED',         -- Needs help walking, uses walker/cane
+        'WHEELCHAIR',       -- Uses wheelchair
+        'STRETCHER'         -- Bedridden, needs stretcher transport
+    );
+EXCEPTION WHEN duplicate_object THEN null;
+END $$;
+
+-- ============================
+-- Drivers Table (Enhanced)
+-- ============================
+CREATE TABLE IF NOT EXISTS drivers (
+    id BIGSERIAL PRIMARY KEY,
+    name VARCHAR(100) NOT NULL,
+    email VARCHAR(100),
+    phone VARCHAR(20) NOT NULL,
+
+    -- Vehicle Information
+    vehicle_type vehicle_type_enum DEFAULT 'SEDAN',
+    vehicle_make VARCHAR(50),
+    vehicle_model VARCHAR(50),
+    vehicle_year INTEGER,
+    license_plate VARCHAR(20),
+    vehicle_capacity INTEGER DEFAULT 4,
+
+    -- Medical Transport Capabilities
+    wheelchair_accessible BOOLEAN DEFAULT FALSE,
+    stretcher_capable BOOLEAN DEFAULT FALSE,
+    oxygen_equipped BOOLEAN DEFAULT FALSE,
+    lift_equipped BOOLEAN DEFAULT FALSE,
+
+    -- Skills and Certifications
+    skills JSONB NOT NULL DEFAULT '{}'::jsonb,
+    certifications JSONB DEFAULT '[]'::jsonb, -- ["CPR", "First Aid", "Medical Transport"]
+
+    -- Location and Availability
+    base_location VARCHAR(200) DEFAULT 'Driver Base, 123 Main St',
+    base_lat DOUBLE PRECISION DEFAULT 39.7392 NOT NULL,
+    base_lng DOUBLE PRECISION DEFAULT -104.9903 NOT NULL,
+    current_lat DOUBLE PRECISION,
+    current_lng DOUBLE PRECISION,
+    last_location_update TIMESTAMP,
+
+    -- Schedule and Capacity
+    active BOOLEAN DEFAULT TRUE,
+    shift_start TIMESTAMP,
+    shift_end TIMESTAMP,
+    weekly_schedule JSONB, -- {"monday": {"start": "08:00", "end": "17:00", "available": true}}
+    max_daily_rides INTEGER DEFAULT 8,
+
+    -- Driver Preferences
+    preferred_patient_types VARCHAR(200), -- "wheelchair", "elderly", "pediatric"
+    max_drive_distance_miles INTEGER,
+    prefers_short_trips BOOLEAN DEFAULT FALSE,
+
+    -- Compliance and Licensing
+    drivers_license_number VARCHAR(50),
+    drivers_license_expiry DATE,
+    medical_transport_license VARCHAR(50),
+    medical_transport_license_expiry DATE,
+    insurance_policy_number VARCHAR(50),
+    insurance_expiry DATE,
+    background_check_date DATE,
+    drug_test_date DATE,
+    is_training_complete BOOLEAN DEFAULT FALSE,
+
+    -- Performance Tracking
+    total_rides_completed INTEGER DEFAULT 0,
+    average_rating DECIMAL(3,2),
+    hire_date DATE,
+
+    -- Timestamps
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT uq_driver_unique UNIQUE (name, phone)
+);
+
+-- ============================
+-- Patients Table (Enhanced)
+-- ============================
+CREATE TABLE IF NOT EXISTS patients (
+    id BIGSERIAL PRIMARY KEY,
+    name VARCHAR(100) NOT NULL,
+
+    -- Contact Information
+    contact_info VARCHAR(100), -- Keep for backward compatibility
+    phone VARCHAR(20),
+    email VARCHAR(100),
+    emergency_contact_name VARCHAR(100),
+    emergency_contact_phone VARCHAR(20),
+
+    -- Default Locations
+    default_pickup_location VARCHAR(200),
+    default_dropoff_location VARCHAR(200),
+    default_pickup_lat DOUBLE PRECISION,
+    default_pickup_lng DOUBLE PRECISION,
+    default_dropoff_lat DOUBLE PRECISION,
+    default_dropoff_lng DOUBLE PRECISION,
+
+    -- Medical Requirements
+    requires_wheelchair BOOLEAN DEFAULT FALSE,
+    requires_stretcher BOOLEAN DEFAULT FALSE,
+    requires_oxygen BOOLEAN DEFAULT FALSE,
+    mobility_level mobility_level_enum DEFAULT 'INDEPENDENT',
+
+    -- Medical Information
+    medical_conditions JSONB DEFAULT '[]'::jsonb, -- ["diabetes", "hypertension"]
+    medications JSONB DEFAULT '[]'::jsonb, -- ["insulin", "lisinopril"]
+    special_needs JSONB NOT NULL DEFAULT '{}'::jsonb, -- Keep existing structure
+
+    -- Insurance and Billing
+    insurance_provider VARCHAR(100),
+    insurance_id VARCHAR(50),
+    medicaid_number VARCHAR(50),
+
+    -- Patient Information
+    date_of_birth DATE,
+    is_active BOOLEAN DEFAULT TRUE,
+
+    -- Timestamps
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- ============================
+-- Rides Table (Enhanced)
+-- ============================
+CREATE TABLE IF NOT EXISTS rides (
+    id BIGSERIAL PRIMARY KEY,
+    patient_id BIGINT REFERENCES patients(id) ON DELETE CASCADE,
+
+    -- Driver Assignments (Enhanced for Medical Transport)
+    driver_id BIGINT REFERENCES drivers(id), -- Keep for backward compatibility
+    pickup_driver_id BIGINT REFERENCES drivers(id),
+    dropoff_driver_id BIGINT REFERENCES drivers(id),
+
+    -- Location Information
+    pickup_location VARCHAR(200) NOT NULL,
+    dropoff_location VARCHAR(200) NOT NULL,
+    pickup_lat DOUBLE PRECISION,
+    pickup_lng DOUBLE PRECISION,
+    dropoff_lat DOUBLE PRECISION,
+    dropoff_lng DOUBLE PRECISION,
+
+    -- Timing Information
+    pickup_time TIMESTAMP NOT NULL,
+    dropoff_time TIMESTAMP,
+    pickup_window_start TIMESTAMP,
+    pickup_window_end TIMESTAMP,
+    dropoff_window_start TIMESTAMP,
+    dropoff_window_end TIMESTAMP,
+
+    -- Medical Transport Specific
+    appointment_duration INTEGER, -- in minutes
+    ride_type ride_type_enum DEFAULT 'ONE_WAY',
+    priority priority_enum DEFAULT 'ROUTINE',
+    is_round_trip BOOLEAN DEFAULT FALSE,
+
+    -- Legacy Fields (Keep for compatibility)
+    wait_time INTEGER DEFAULT 0 CHECK (wait_time BETWEEN 0 AND 15),
+    is_sequential BOOLEAN DEFAULT FALSE,
+
+    -- Distance and Routing
+    distance FLOAT,              -- User-supplied or estimated
+    route_distance FLOAT DEFAULT 0.0, -- OSRM-calculated
+    estimated_duration INTEGER, -- in minutes
+
+    -- Vehicle and Skill Requirements
+    status ride_status DEFAULT 'SCHEDULED',
+    required_vehicle_type vehicle_type_enum,
+    required_skills JSONB DEFAULT '[]'::jsonb, -- ["CPR", "medical_assistance"]
+
+    -- Assignment Tracking
+    assigned_at TIMESTAMP,
+    assigned_by VARCHAR(100),
+    optimization_batch_id VARCHAR(100),
+
+    -- Cost and Billing
+    estimated_cost DECIMAL(10,2),
+
+    -- Relationships
+    return_ride_id BIGINT REFERENCES rides(id),
+
+    -- Timestamps
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- ============================
+-- Schedules Table (Enhanced)
+-- ============================
+CREATE TABLE IF NOT EXISTS schedules (
+    id BIGSERIAL PRIMARY KEY,
+    ride_id BIGINT REFERENCES rides(id) ON DELETE CASCADE,
+    date DATE NOT NULL,
+    assigned_driver_id BIGINT REFERENCES drivers(id),
+    backup_driver_id BIGINT REFERENCES drivers(id), -- For medical transport redundancy
+    estimated_start_time TIMESTAMP,
+    estimated_end_time TIMESTAMP,
+    actual_start_time TIMESTAMP,
+    actual_end_time TIMESTAMP,
+    notes TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- ============================
+-- Patient History (Enhanced)
+-- ============================
+CREATE TABLE IF NOT EXISTS patient_history (
+    id BIGSERIAL PRIMARY KEY,
+    patient_id BIGINT REFERENCES patients(id) ON DELETE CASCADE,
+    ride_id BIGINT REFERENCES rides(id) ON DELETE CASCADE,
+    appointment_date TIMESTAMP,
+    pickup_driver_id BIGINT REFERENCES drivers(id),
+    dropoff_driver_id BIGINT REFERENCES drivers(id),
+    distance FLOAT,
+    duration_minutes INTEGER,
+    cost DECIMAL(10,2),
+    patient_rating INTEGER CHECK (patient_rating BETWEEN 1 AND 5),
+    driver_rating INTEGER CHECK (driver_rating BETWEEN 1 AND 5),
+    notes TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- ============================
+-- Enhanced Audit Tables
+-- ============================
+CREATE TABLE IF NOT EXISTS ride_assignment_audit (
+    id BIGSERIAL PRIMARY KEY,
+    ride_id BIGINT NOT NULL REFERENCES rides(id) ON DELETE CASCADE,
+    previous_pickup_driver_id BIGINT REFERENCES drivers(id),
+    previous_dropoff_driver_id BIGINT REFERENCES drivers(id),
+    new_pickup_driver_id BIGINT REFERENCES drivers(id),
+    new_dropoff_driver_id BIGINT REFERENCES drivers(id),
+    assigned_by VARCHAR(100),
+    assignment_method VARCHAR(100), -- "MANUAL", "AUTO_OPTIMIZER", "EMERGENCY_REASSIGN"
+    assignment_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    reason TEXT,
+    optimization_batch_id VARCHAR(100)
+);
+
+CREATE TABLE IF NOT EXISTS assignment_audit (
+    id BIGSERIAL PRIMARY KEY,
+    assignment_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    assignment_date DATE,
+    batch_id VARCHAR(100),
+
+    -- Ride Statistics
+    total_rides INTEGER,
+    assigned_rides INTEGER,
+    unassigned_rides INTEGER,
+
+    -- Driver Statistics
+    assigned_drivers INTEGER,
+    total_available_drivers INTEGER,
+
+    -- Medical Transport Statistics
+    wheelchair_rides INTEGER DEFAULT 0,
+    stretcher_rides INTEGER DEFAULT 0,
+    round_trip_rides INTEGER DEFAULT 0,
+    emergency_rides INTEGER DEFAULT 0,
+
+    -- Performance Metrics
+    success_rate DECIMAL(5,2),
+    average_assignment_time_seconds INTEGER,
+    optimization_strategy VARCHAR(200),
+
+    -- Metadata
+    triggered_by VARCHAR(100),
+    ride_assignments JSONB, -- Summary of assignments
+    ride_assignments_detail JSONB, -- Detailed assignment info
+
+    -- Constraints and Issues
+    unassigned_reasons JSONB, -- Reasons why rides couldn't be assigned
+    constraint_violations INTEGER DEFAULT 0
+);
+
+-- ============================
+-- Skills and Certifications (Normalized)
+-- ============================
+CREATE TABLE IF NOT EXISTS skills (
+    id BIGSERIAL PRIMARY KEY,
+    name VARCHAR(50) UNIQUE NOT NULL,
+    category VARCHAR(50), -- "MEDICAL", "DRIVING", "EQUIPMENT", "CERTIFICATION"
+    description TEXT,
+    required_for_vehicle_types vehicle_type_enum[],
+    is_certification BOOLEAN DEFAULT FALSE,
+    expires BOOLEAN DEFAULT FALSE, -- Whether this skill/certification expires
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS driver_skills (
+    driver_id BIGINT NOT NULL,
+    skill_id BIGINT NOT NULL,
+    acquired_date DATE,
+    expiry_date DATE,
+    certification_number VARCHAR(100),
+    PRIMARY KEY (driver_id, skill_id),
+    CONSTRAINT fk_driver_skill_driver FOREIGN KEY (driver_id) REFERENCES drivers(id) ON DELETE CASCADE,
+    CONSTRAINT fk_driver_skill_skill FOREIGN KEY (skill_id) REFERENCES skills(id) ON DELETE CASCADE
+);
+
+-- ============================
+-- Vehicle Maintenance (New for Medical Transport)
+-- ============================
+CREATE TABLE IF NOT EXISTS vehicle_maintenance (
+    id BIGSERIAL PRIMARY KEY,
+    driver_id BIGINT REFERENCES drivers(id) ON DELETE CASCADE,
+    maintenance_type VARCHAR(50), -- "INSPECTION", "REPAIR", "CLEANING", "CERTIFICATION"
+    maintenance_date DATE NOT NULL,
+    next_due_date DATE,
+    cost DECIMAL(10,2),
+    notes TEXT,
+    performed_by VARCHAR(100),
+    is_required_for_medical_transport BOOLEAN DEFAULT FALSE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- ============================
+-- App Users (Enhanced for Medical Transport)
+-- ============================
+CREATE TABLE IF NOT EXISTS app_users (
+    id BIGSERIAL PRIMARY KEY,
+    email VARCHAR(100) UNIQUE NOT NULL,
+    role VARCHAR(50) NOT NULL, -- "ADMIN", "DISPATCHER", "DRIVER", "PATIENT", "COORDINATOR"
+    organization VARCHAR(100),
+    permissions JSONB DEFAULT '{}'::jsonb,
+    is_active BOOLEAN DEFAULT TRUE,
+    last_login TIMESTAMP,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- ============================
+-- Comprehensive Indexes
+-- ============================
+
+-- Rides table indexes
+CREATE INDEX IF NOT EXISTS idx_rides_pickup_time ON rides(pickup_time);
+CREATE INDEX IF NOT EXISTS idx_rides_status ON rides(status);
+CREATE INDEX IF NOT EXISTS idx_rides_driver_id ON rides(driver_id);
+CREATE INDEX IF NOT EXISTS idx_rides_pickup_driver ON rides(pickup_driver_id);
+CREATE INDEX IF NOT EXISTS idx_rides_dropoff_driver ON rides(dropoff_driver_id);
+CREATE INDEX IF NOT EXISTS idx_rides_batch_id ON rides(optimization_batch_id);
+CREATE INDEX IF NOT EXISTS idx_rides_priority ON rides(priority);
+CREATE INDEX IF NOT EXISTS idx_rides_ride_type ON rides(ride_type);
+CREATE INDEX IF NOT EXISTS idx_rides_required_vehicle_type ON rides(required_vehicle_type);
+CREATE INDEX IF NOT EXISTS idx_rides_patient_id ON rides(patient_id);
+CREATE INDEX IF NOT EXISTS idx_rides_scheduling ON rides(pickup_time, priority, ride_type, status);
+
+-- Patients table indexes
+CREATE INDEX IF NOT EXISTS idx_patients_name ON patients(name);
+CREATE INDEX IF NOT EXISTS idx_patients_phone ON patients(phone);
+CREATE INDEX IF NOT EXISTS idx_patients_mobility_level ON patients(mobility_level);
+CREATE INDEX IF NOT EXISTS idx_patients_active ON patients(is_active);
+CREATE INDEX IF NOT EXISTS idx_patients_medical_needs ON patients(requires_wheelchair, requires_stretcher, requires_oxygen, mobility_level);
+
+-- Drivers table indexes
+CREATE INDEX IF NOT EXISTS idx_drivers_active ON drivers(active);
+CREATE INDEX IF NOT EXISTS idx_drivers_vehicle_type ON drivers(vehicle_type);
+CREATE INDEX IF NOT EXISTS idx_drivers_wheelchair_accessible ON drivers(wheelchair_accessible);
+CREATE INDEX IF NOT EXISTS idx_drivers_stretcher_capable ON drivers(stretcher_capable);
+CREATE INDEX IF NOT EXISTS idx_drivers_oxygen_equipped ON drivers(oxygen_equipped);
+CREATE INDEX IF NOT EXISTS idx_drivers_training_complete ON drivers(is_training_complete);
+CREATE INDEX IF NOT EXISTS idx_drivers_medical_capabilities ON drivers(active, wheelchair_accessible, stretcher_capable, oxygen_equipped, is_training_complete);
+
+-- Schedules table indexes
+CREATE INDEX IF NOT EXISTS idx_schedules_date ON schedules(date);
+CREATE INDEX IF NOT EXISTS idx_schedules_assigned_driver_id ON schedules(assigned_driver_id);
+CREATE INDEX IF NOT EXISTS idx_schedules_ride_id ON schedules(ride_id);
+
+-- Audit table indexes
+CREATE INDEX IF NOT EXISTS idx_ride_audit_ride_id ON ride_assignment_audit(ride_id);
+CREATE INDEX IF NOT EXISTS idx_ride_audit_new_pickup_driver ON ride_assignment_audit(new_pickup_driver_id);
+CREATE INDEX IF NOT EXISTS idx_ride_audit_new_dropoff_driver ON ride_assignment_audit(new_dropoff_driver_id);
+CREATE INDEX IF NOT EXISTS idx_ride_audit_batch_id ON ride_assignment_audit(optimization_batch_id);
+CREATE INDEX IF NOT EXISTS idx_assignment_audit_batch_id ON assignment_audit(batch_id);
+CREATE INDEX IF NOT EXISTS idx_assignment_audit_date ON assignment_audit(assignment_date);
+CREATE INDEX IF NOT EXISTS idx_audit_reporting ON assignment_audit(assignment_date, triggered_by, success_rate);
+
+-- Patient history indexes
+CREATE INDEX IF NOT EXISTS idx_patient_history_patient_id ON patient_history(patient_id);
+CREATE INDEX IF NOT EXISTS idx_patient_history_date ON patient_history(appointment_date);
+
+-- Skills indexes
+CREATE INDEX IF NOT EXISTS idx_driver_skills_driver_id ON driver_skills(driver_id);
+CREATE INDEX IF NOT EXISTS idx_driver_skills_skill_id ON driver_skills(skill_id);
+CREATE INDEX IF NOT EXISTS idx_driver_skills_expiry ON driver_skills(expiry_date);
+
+-- ============================
+-- Medical Transport Views
+-- ============================
+
+-- View for rides requiring special vehicles
+CREATE OR REPLACE VIEW medical_transport_rides AS
+SELECT
+    r.id,
+    r.pickup_time,
+    r.appointment_duration,
+    r.ride_type,
+    r.priority,
+    r.status,
+    p.name as patient_name,
+    p.requires_wheelchair,
+    p.requires_stretcher,
+    p.requires_oxygen,
+    p.mobility_level,
+    r.required_vehicle_type,
+    pd.name as pickup_driver_name,
+    pd.vehicle_type as pickup_driver_vehicle,
+    dd.name as dropoff_driver_name,
+    dd.vehicle_type as dropoff_driver_vehicle,
+    r.pickup_location,
+    r.dropoff_location
+FROM rides r
+JOIN patients p ON r.patient_id = p.id
+LEFT JOIN drivers pd ON r.pickup_driver_id = pd.id
+LEFT JOIN drivers dd ON r.dropoff_driver_id = dd.id
+WHERE p.requires_wheelchair = true
+   OR p.requires_stretcher = true
+   OR p.requires_oxygen = true
+   OR r.required_vehicle_type IN ('WHEELCHAIR_VAN', 'STRETCHER_VAN', 'AMBULANCE')
+   OR p.mobility_level IN ('WHEELCHAIR', 'STRETCHER');
+
+-- View for driver capabilities and availability
+CREATE OR REPLACE VIEW driver_capabilities AS
+SELECT
+    d.id,
+    d.name,
+    d.phone,
+    d.vehicle_type,
+    d.wheelchair_accessible,
+    d.stretcher_capable,
+    d.oxygen_equipped,
+    d.vehicle_capacity,
+    d.active,
+    d.is_training_complete,
+    d.max_daily_rides,
+    d.preferred_patient_types,
+    -- Check for expiring licenses/certifications
+    CASE
+        WHEN d.drivers_license_expiry < CURRENT_DATE + INTERVAL '30 days' THEN true
+        WHEN d.medical_transport_license_expiry < CURRENT_DATE + INTERVAL '30 days' THEN true
+        WHEN d.insurance_expiry < CURRENT_DATE + INTERVAL '30 days' THEN true
+        ELSE false
+    END as needs_renewal_soon,
+    -- Current workload
+    (SELECT COUNT(*) FROM rides r WHERE r.pickup_driver_id = d.id AND r.pickup_time::date = CURRENT_DATE) as todays_pickup_rides,
+    (SELECT COUNT(*) FROM rides r WHERE r.dropoff_driver_id = d.id AND r.pickup_time::date = CURRENT_DATE) as todays_dropoff_rides
+FROM drivers d;
+
+-- View for optimization performance tracking
+CREATE OR REPLACE VIEW optimization_performance AS
+SELECT
+    aa.batch_id,
+    aa.assignment_date,
+    aa.total_rides,
+    aa.assigned_rides,
+    aa.unassigned_rides,
+    aa.assigned_drivers,
+    aa.wheelchair_rides,
+    aa.stretcher_rides,
+    aa.round_trip_rides,
+    aa.emergency_rides,
+    aa.success_rate,
+    aa.optimization_strategy,
+    aa.assignment_time,
+    aa.triggered_by,
+    ROUND(aa.assigned_rides::decimal / NULLIF(aa.total_rides, 0) * 100, 2) as calculated_success_rate
+FROM assignment_audit aa
+WHERE aa.batch_id IS NOT NULL
+ORDER BY aa.assignment_time DESC;
+
+-- View for patient medical requirements summary
+CREATE OR REPLACE VIEW patient_medical_summary AS
+SELECT
+    p.id,
+    p.name,
+    p.phone,
+    p.mobility_level,
+    p.requires_wheelchair,
+    p.requires_stretcher,
+    p.requires_oxygen,
+    p.insurance_provider,
+    p.emergency_contact_name,
+    p.emergency_contact_phone,
+    CASE
+        WHEN p.requires_stretcher = true THEN 'STRETCHER_VAN'
+        WHEN p.requires_wheelchair = true THEN 'WHEELCHAIR_VAN'
+        WHEN p.mobility_level = 'STRETCHER' THEN 'STRETCHER_VAN'
+        WHEN p.mobility_level = 'WHEELCHAIR' THEN 'WHEELCHAIR_VAN'
+        ELSE 'SEDAN'
+    END as recommended_vehicle_type,
+    -- Recent ride history
+    (SELECT COUNT(*) FROM rides r WHERE r.patient_id = p.id AND r.pickup_time > CURRENT_DATE - INTERVAL '30 days') as rides_last_30_days,
+    (SELECT MAX(r.pickup_time) FROM rides r WHERE r.patient_id = p.id) as last_ride_date
+FROM patients p
+WHERE p.is_active = true;
+
+-- ============================
+-- Data Integrity Constraints
+-- ============================
+
+-- Ensure pickup time is before dropoff time for round trips
+ALTER TABLE rides ADD CONSTRAINT chk_pickup_before_dropoff
+CHECK (dropoff_time IS NULL OR pickup_time < dropoff_time);
+
+-- Ensure appointment duration is reasonable (0-480 minutes = 8 hours max)
+ALTER TABLE rides ADD CONSTRAINT chk_reasonable_duration
+CHECK (appointment_duration IS NULL OR (appointment_duration >= 0 AND appointment_duration <= 480));
+
+-- Ensure time windows are valid
+ALTER TABLE rides ADD CONSTRAINT chk_pickup_window_valid
+CHECK (pickup_window_start IS NULL OR pickup_window_end IS NULL OR pickup_window_start < pickup_window_end);
+
+ALTER TABLE rides ADD CONSTRAINT chk_dropoff_window_valid
+CHECK (dropoff_window_start IS NULL OR dropoff_window_end IS NULL OR dropoff_window_start < dropoff_window_end);
+
+-- Ensure patient date of birth is reasonable
+ALTER TABLE patients ADD CONSTRAINT chk_reasonable_dob
+CHECK (date_of_birth IS NULL OR (date_of_birth > '1900-01-01' AND date_of_birth <= CURRENT_DATE));
+
+-- Ensure driver license expiry dates are reasonable
+ALTER TABLE drivers ADD CONSTRAINT chk_license_expiry_reasonable
+CHECK (drivers_license_expiry IS NULL OR drivers_license_expiry > CURRENT_DATE - INTERVAL '1 year');
+
+-- Ensure vehicle capacity is reasonable
+ALTER TABLE drivers ADD CONSTRAINT chk_reasonable_capacity
+CHECK (vehicle_capacity IS NULL OR (vehicle_capacity >= 1 AND vehicle_capacity <= 20));
+
+-- Ensure ratings are within valid range
+ALTER TABLE patient_history ADD CONSTRAINT chk_valid_patient_rating
+CHECK (patient_rating IS NULL OR (patient_rating >= 1 AND patient_rating <= 5));
+
+ALTER TABLE patient_history ADD CONSTRAINT chk_valid_driver_rating
+CHECK (driver_rating IS NULL OR (driver_rating >= 1 AND driver_rating <= 5));
+
+-- ============================
+-- Triggers for Updated Timestamps
+-- ============================
+CREATE OR REPLACE FUNCTION update_updated_at_column()
+RETURNS TRIGGER AS $$
+BEGIN
+    NEW.updated_at = CURRENT_TIMESTAMP;
+    RETURN NEW;
+END;
+$$ language 'plpgsql';
+
+CREATE TRIGGER update_patients_updated_at BEFORE UPDATE ON patients
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+CREATE TRIGGER update_drivers_updated_at BEFORE UPDATE ON drivers
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+CREATE TRIGGER update_rides_updated_at BEFORE UPDATE ON rides
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+CREATE TRIGGER update_app_users_updated_at BEFORE UPDATE ON app_users
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+-- ============================
+-- Sample Data Insert (Optional)
+-- ============================
+
+-- Insert some sample skills
+INSERT INTO skills (name, category, description, is_certification) VALUES
+('CPR', 'MEDICAL', 'Cardiopulmonary Resuscitation', true),
+('First Aid', 'MEDICAL', 'Basic First Aid', true),
+('Medical Transport', 'CERTIFICATION', 'Medical Transport License', true),
+('Wheelchair Operation', 'EQUIPMENT', 'Operating wheelchair lifts and restraints', false),
+('Stretcher Operation', 'EQUIPMENT', 'Operating stretcher and patient transfer', false),
+('Oxygen Equipment', 'MEDICAL', 'Handling oxygen tanks and equipment', false),
+('Patient Communication', 'MEDICAL', 'Communicating with patients with special needs', false)
+ON CONFLICT (name) DO NOTHING;
+
+-- ============================
+-- Final Verification Queries
+-- ============================
+
+-- Query to verify schema creation
+SELECT
+    schemaname,
+    tablename,
+    tableowner
+FROM pg_tables
+WHERE schemaname = 'public'
+    AND tablename IN ('drivers', 'patients', 'rides', 'schedules', 'assignment_audit', 'skills')
+ORDER BY tablename;
+
+-- Query to verify enum types
+SELECT
+    typname as enum_name,
+    array_agg(enumlabel ORDER BY enumsortorder) as enum_values
+FROM pg_type t
+JOIN pg_enum e ON t.oid = e.enumtypid
+WHERE typname LIKE '%enum' OR typname LIKE '%status' OR typname LIKE '%type'
+GROUP BY typname
+ORDER BY typname;
