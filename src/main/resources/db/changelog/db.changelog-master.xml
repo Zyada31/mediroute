@@ -1,0 +1,14 @@
+<databaseChangeLog
+        xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.25.xsd">
+
+    <!-- Include all changelog files -->
+    <include file="db/changelog/001-create-initial-schema.xml"/>
+    <include file="db/changelog/002-create-indexes.xml"/>
+    <include file="db/changelog/003-add-medical-transport-features.xml"/>
+    <include file="db/changelog/004-create-audit-tables.xml"/>
+    <include file="db/changelog/005-add-constraints.xml"/>
+
+</databaseChangeLog>

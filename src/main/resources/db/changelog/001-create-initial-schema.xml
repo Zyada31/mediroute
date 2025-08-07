@@ -1,0 +1,194 @@
+
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+                   xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                   xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+                   http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.25.xsd">
+
+<!-- Create Patients Table -->
+<changeSet id="001-create-patients-table" author="mediroute">
+    <createTable tableName="patients">
+        <column name="id" type="BIGSERIAL">
+            <constraints primaryKey="true" nullable="false"/>
+        </column>
+        <column name="name" type="VARCHAR(255)">
+            <constraints nullable="false"/>
+        </column>
+        <column name="phone" type="VARCHAR(20)">
+            <constraints nullable="false"/>
+        </column>
+        <column name="email" type="VARCHAR(255)"/>
+        <column name="emergency_contact_name" type="VARCHAR(255)"/>
+        <column name="emergency_contact_phone" type="VARCHAR(20)"/>
+
+        <!-- Default pickup location -->
+        <column name="default_pickup_address" type="TEXT"/>
+        <column name="default_pickup_lat" type="DOUBLE PRECISION"/>
+        <column name="default_pickup_lng" type="DOUBLE PRECISION"/>
+
+        <!-- Default dropoff location -->
+        <column name="default_dropoff_address" type="TEXT"/>
+        <column name="default_dropoff_lat" type="DOUBLE PRECISION"/>
+        <column name="default_dropoff_lng" type="DOUBLE PRECISION"/>
+
+        <!-- Medical requirements -->
+        <column name="requires_wheelchair" type="BOOLEAN" defaultValue="false"/>
+        <column name="requires_stretcher" type="BOOLEAN" defaultValue="false"/>
+        <column name="requires_oxygen" type="BOOLEAN" defaultValue="false"/>
+        <column name="mobility_level" type="VARCHAR(20)"/>
+
+        <!-- Medical information -->
+        <column name="medical_conditions" type="JSONB"/>
+        <column name="insurance_provider" type="VARCHAR(255)"/>
+        <column name="insurance_id" type="VARCHAR(100)"/>
+        <column name="medicaid_number" type="VARCHAR(100)"/>
+        <column name="date_of_birth" type="DATE"/>
+
+        <!-- Special needs -->
+        <column name="special_needs" type="JSONB"/>
+
+        <!-- Status and audit -->
+        <column name="is_active" type="BOOLEAN" defaultValue="true"/>
+        <column name="created_at" type="TIMESTAMP" defaultValueComputed="CURRENT_TIMESTAMP"/>
+        <column name="updated_at" type="TIMESTAMP" defaultValueComputed="CURRENT_TIMESTAMP"/>
+    </createTable>
+</changeSet>
+
+<!-- Create Drivers Table -->
+<changeSet id="002-create-drivers-table" author="mediroute">
+    <createTable tableName="drivers">
+        <column name="id" type="BIGSERIAL">
+            <constraints primaryKey="true" nullable="false"/>
+        </column>
+        <column name="name" type="VARCHAR(255)">
+            <constraints nullable="false"/>
+        </column>
+        <column name="email" type="VARCHAR(255)"/>
+        <column name="phone" type="VARCHAR(20)">
+            <constraints nullable="false"/>
+        </column>
+
+        <!-- Vehicle information -->
+        <column name="vehicle_type" type="VARCHAR(30)" defaultValue="SEDAN">
+            <constraints nullable="false"/>
+        </column>
+        <column name="vehicle_capacity" type="INTEGER" defaultValue="4"/>
+
+        <!-- Medical transport capabilities -->
+        <column name="wheelchair_accessible" type="BOOLEAN" defaultValue="false"/>
+        <column name="stretcher_capable" type="BOOLEAN" defaultValue="false"/>
+        <column name="oxygen_equipped" type="BOOLEAN" defaultValue="false"/>
+
+        <!-- Skills and certifications -->
+        <column name="skills" type="JSONB"/>
+        <column name="certifications" type="JSONB"/>
+
+        <!-- Availability -->
+        <column name="active" type="BOOLEAN" defaultValue="true"/>
+        <column name="max_daily_rides" type="INTEGER" defaultValue="8"/>
+        <column name="shift_start" type="TIME"/>
+        <column name="shift_end" type="TIME"/>
+
+        <!-- Base location -->
+        <column name="base_location" type="VARCHAR(255)">
+            <constraints nullable="false"/>
+        </column>
+        <column name="base_lat" type="DOUBLE PRECISION">
+            <constraints nullable="false"/>
+        </column>
+        <column name="base_lng" type="DOUBLE PRECISION">
+            <constraints nullable="false"/>
+        </column>
+
+        <!-- License and compliance -->
+        <column name="drivers_license_expiry" type="DATE"/>
+        <column name="medical_transport_license_expiry" type="DATE"/>
+        <column name="insurance_expiry" type="DATE"/>
+        <column name="is_training_complete" type="BOOLEAN" defaultValue="false"/>
+
+        <!-- Audit -->
+        <column name="created_at" type="TIMESTAMP" defaultValueComputed="CURRENT_TIMESTAMP"/>
+        <column name="updated_at" type="TIMESTAMP" defaultValueComputed="CURRENT_TIMESTAMP"/>
+    </createTable>
+</changeSet>
+
+<!-- Create Rides Table -->
+<changeSet id="003-create-rides-table" author="mediroute">
+    <createTable tableName="rides">
+        <column name="id" type="BIGSERIAL">
+            <constraints primaryKey="true" nullable="false"/>
+        </column>
+
+        <!-- Patient and driver relationships -->
+        <column name="patient_id" type="BIGINT">
+            <constraints nullable="false"/>
+        </column>
+        <column name="pickup_driver_id" type="BIGINT"/>
+        <column name="dropoff_driver_id" type="BIGINT"/>
+
+        <!-- Pickup location -->
+        <column name="pickup_address" type="TEXT"/>
+        <column name="pickup_lat" type="DOUBLE PRECISION"/>
+        <column name="pickup_lng" type="DOUBLE PRECISION"/>
+
+        <!-- Dropoff location -->
+        <column name="dropoff_address" type="TEXT"/>
+        <column name="dropoff_lat" type="DOUBLE PRECISION"/>
+        <column name="dropoff_lng" type="DOUBLE PRECISION"/>
+
+        <!-- Timing information -->
+        <column name="pickup_time" type="TIMESTAMP">
+            <constraints nullable="false"/>
+        </column>
+        <column name="dropoff_time" type="TIMESTAMP"/>
+        <column name="pickup_window_start" type="TIMESTAMP"/>
+        <column name="pickup_window_end" type="TIMESTAMP"/>
+        <column name="dropoff_window_start" type="TIMESTAMP"/>
+        <column name="dropoff_window_end" type="TIMESTAMP"/>
+        <column name="appointment_duration" type="INTEGER"/>
+
+        <!-- Ride classification -->
+        <column name="ride_type" type="VARCHAR(20)"/>
+        <column name="priority" type="VARCHAR(20)" defaultValue="ROUTINE"/>
+        <column name="status" type="VARCHAR(20)" defaultValue="SCHEDULED"/>
+
+        <!-- Vehicle and requirements -->
+        <column name="required_vehicle_type" type="VARCHAR(50)"/>
+        <column name="required_skills" type="JSONB"/>
+
+        <!-- Distance and cost -->
+        <column name="distance" type="DOUBLE PRECISION"/>
+        <column name="estimated_duration" type="INTEGER"/>
+        <column name="estimated_cost" type="DOUBLE PRECISION"/>
+
+        <!-- Assignment information -->
+        <column name="assigned_at" type="TIMESTAMP"/>
+        <column name="assigned_by" type="VARCHAR(255)"/>
+        <column name="optimization_batch_id" type="VARCHAR(100)"/>
+
+        <!-- Flags -->
+        <column name="is_round_trip" type="BOOLEAN" defaultValue="false"/>
+        <column name="is_sequential" type="BOOLEAN" defaultValue="false"/>
+
+        <!-- Audit -->
+        <column name="created_at" type="TIMESTAMP" defaultValueComputed="CURRENT_TIMESTAMP"/>
+        <column name="updated_at" type="TIMESTAMP" defaultValueComputed="CURRENT_TIMESTAMP"/>
+    </createTable>
+</changeSet>
+
+<!-- Add Foreign Key Constraints -->
+<changeSet id="004-add-foreign-keys" author="mediroute">
+    <addForeignKeyConstraint baseTableName="rides" baseColumnNames="patient_id"
+                             constraintName="fk_rides_patient"
+                             referencedTableName="patients" referencedColumnNames="id"/>
+
+    <addForeignKeyConstraint baseTableName="rides" baseColumnNames="pickup_driver_id"
+                             constraintName="fk_rides_pickup_driver"
+                             referencedTableName="drivers" referencedColumnNames="id"/>
+
+    <addForeignKeyConstraint baseTableName="rides" baseColumnNames="dropoff_driver_id"
+                             constraintName="fk_rides_dropoff_driver"
+                             referencedTableName="drivers" referencedColumnNames="id"/>
+</changeSet>
+
+</databaseChangeLog>
