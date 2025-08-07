@@ -1,9 +1,15 @@
 package com.mediroute.dto;
 
-// New Enums
+import io.swagger.v3.oas.annotations.media.Schema;
+
+@Schema(description = "Type of ride")
 public enum RideType {
-    ONE_WAY,           // Single trip from A to B
-    ROUND_TRIP,        // A to B, wait, B to A (same driver)
-    PICKUP_ONLY,       // Just pickup leg of a longer journey
-    DROPOFF_ONLY       // Just dropoff leg of a longer journey
+    @Schema(description = "One-way trip")
+    ONE_WAY,
+
+    @Schema(description = "Round trip with wait time")
+    ROUND_TRIP,
+
+    @Schema(description = "Recurring ride pattern")
+    RECURRING
 }

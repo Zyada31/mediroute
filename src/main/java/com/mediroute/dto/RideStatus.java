@@ -1,18 +1,35 @@
 package com.mediroute.dto;
 
+import io.swagger.v3.oas.annotations.media.Schema;
+
 import java.util.EnumSet;
 
+@Schema(description = "Ride status")
 public enum RideStatus {
-    REQUESTED,        // Initial request received
-    SCHEDULED,        // Ride scheduled but not assigned
-    ASSIGNED,         // Assigned to driver(s)
-    CONFIRMED,        // Driver confirmed assignment
-    IN_PROGRESS,      // Pickup completed, en route
-    AT_DESTINATION,   // Arrived at appointment
-    WAITING,          // Waiting during appointment
-    RETURNING,        // Return journey started
-    COMPLETED,        // Ride fully completed
-    CANCELLED,        // Cancelled before completion
-    NO_SHOW,          // Patient didn't show up
-    DELAYED           // Running behind schedule
+    @Schema(description = "Ride is scheduled but not assigned")
+    SCHEDULED,
+
+    @Schema(description = "Ride is assigned to driver(s)")
+    ASSIGNED,
+
+    @Schema(description = "Driver is en route to pickup")
+    EN_ROUTE_PICKUP,
+
+    @Schema(description = "Driver has arrived for pickup")
+    ARRIVED_PICKUP,
+
+    @Schema(description = "Patient is in vehicle, en route to destination")
+    EN_ROUTE_DROPOFF,
+
+    @Schema(description = "Patient has been dropped off")
+    ARRIVED_DROPOFF,
+
+    @Schema(description = "Ride is completed")
+    COMPLETED,
+
+    @Schema(description = "Ride was cancelled")
+    CANCELLED,
+
+    @Schema(description = "Ride was not completed due to no-show or other issues")
+    NO_SHOW
 }

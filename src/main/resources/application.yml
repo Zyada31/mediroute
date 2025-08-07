@@ -1,0 +1,247 @@
+# ============================================================================
+# APPLICATION.YML - Complete Configuration
+# ============================================================================
+
+# src/main/resources/application.yml
+spring:
+  application:
+    name: mediroute
+  
+  # Database Configuration
+  datasource:
+    url: jdbc:postgresql://localhost:5432/mediroute
+    username: ${DB_USERNAME:mediroute}
+    password: ${DB_PASSWORD:password}
+    driver-class-name: org.postgresql.Driver
+    hikari:
+      maximum-pool-size: 20
+      minimum-idle: 5
+      connection-timeout: 30000
+      idle-timeout: 600000
+      max-lifetime: 1800000
+  
+  # JPA Configuration
+  jpa:
+    hibernate:
+      ddl-auto: validate  # Use liquibase for schema management
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+        format_sql: true
+        use_sql_comments: true
+        jdbc:
+          time_zone: America/Denver
+    show-sql: false
+    open-in-view: false
+  
+  # Liquibase Configuration
+  liquibase:
+    change-log: classpath:db/changelog/db.changelog-master.xml
+    enabled: true
+  
+  # Jackson Configuration
+  jackson:
+    serialization:
+      write-dates-as-timestamps: false
+    time-zone: America/Denver
+    default-property-inclusion: non_null
+  
+  # Web Configuration
+  servlet:
+    multipart:
+      max-file-size: 50MB
+      max-request-size: 50MB
+      enabled: true
+  
+  # Actuator Configuration
+  management:
+    endpoints:
+      web:
+        exposure:
+          include: health,info,metrics,prometheus
+    endpoint:
+      health:
+        show-details: when_authorized
+
+# OpenAPI/Swagger Configuration
+springdoc:
+  api-docs:
+    path: /api-docs
+  swagger-ui:
+    path: /swagger-ui.html
+    operations-sorter: method
+    tags-sorter: alpha
+    try-it-out-enabled: true
+    filter: true
+  packages-to-scan: com.mediroute.controller
+  paths-to-match: /api/**
+
+# MediRoute Specific Configuration
+mediroute:
+  optimization:
+    timeout-seconds: 60
+    default-time-window-minutes: 5
+    enable-fallback: true
+    strategy: "enhanced_medical_transport"
+    max-rides-per-batch: 100
+  geocoding:
+    provider: "google"  # or "osrm"
+    timeout-seconds: 10
+    cache-enabled: true
+    cache-size: 1000
+  medical:
+    short-appointment-threshold: 15
+    emergency-priority-bonus: 100000
+    enable-vehicle-matching: true
+    enable-skill-matching: true
+  audit:
+    enabled: true
+    retention-days: 90
+
+# External Service Configuration
+google:
+  api:
+    key: ${GOOGLE_API_KEY:your-google-api-key-here}
+    geocoding:
+      url: https://maps.googleapis.com/maps/api/geocode/json
+
+osrm:
+  base-url: ${OSRM_BASE_URL:http://localhost:5000}
+  timeout: 30s
+  max-points: 100
+
+# Logging Configuration
+logging:
+  level:
+    com.mediroute: INFO
+    com.mediroute.service.optimization: DEBUG
+    com.mediroute.service.parser: DEBUG
+    org.springframework.web: WARN
+    org.hibernate.SQL: WARN
+    org.hibernate.type.descriptor.sql.BasicBinder: WARN
+    liquibase: INFO
+    com.google.ortools: WARN
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss} - %msg%n"
+    file: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n"
+  file:
+    name: logs/mediroute.log
+    max-size: 10MB
+    max-history: 10
+
+# Server Configuration
+server:
+  port: 8080
+  servlet:
+    context-path: /
+  compression:
+    enabled: true
+  error:
+    include-message: always
+    include-binding-errors: always
+
+---
+# ============================================================================
+# DEVELOPMENT PROFILE
+# ============================================================================
+spring:
+  config:
+    activate:
+      on-profile: dev
+  
+  # Development Database (H2 for testing)
+  datasource:
+    url: jdbc:h2:mem:testdb
+    driver-class-name: org.h2.Driver
+    username: sa
+    password: password
+  
+  h2:
+    console:
+      enabled: true
+      path: /h2-console
+  
+  jpa:
+    hibernate:
+      ddl-auto: create-drop
+    show-sql: true
+
+# Development specific settings
+mediroute:
+  optimization:
+    timeout-seconds: 30  # Shorter for dev
+
+logging:
+  level:
+    com.mediroute: DEBUG
+    org.hibernate.SQL: DEBUG
+    org.hibernate.type.descriptor.sql.BasicBinder: TRACE
+
+---
+# ============================================================================
+# PRODUCTION PROFILE
+# ============================================================================
+spring:
+  config:
+    activate:
+      on-profile: prod
+  
+  # Production Database
+  datasource:
+    url: ${DATABASE_URL}
+    username: ${DB_USERNAME}
+    password: ${DB_PASSWORD}
+    hikari:
+      maximum-pool-size: 50
+      minimum-idle: 10
+
+# Production specific settings
+mediroute:
+  optimization:
+    timeout-seconds: 120  # Longer for prod
+  audit:
+    retention-days: 365
+
+logging:
+  level:
+    com.mediroute: INFO
+    org.springframework: WARN
+    org.hibernate: WARN
+  file:
+    name: /var/log/mediroute/application.log
+
+---
+# ============================================================================
+# TEST PROFILE
+# ============================================================================
+spring:
+  config:
+    activate:
+      on-profile: test
+  
+  # Test Database
+  datasource:
+    url: jdbc:h2:mem:testdb;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE
+    driver-class-name: org.h2.Driver
+    username: sa
+    password:
+  
+  jpa:
+    hibernate:
+      ddl-auto: create-drop
+    show-sql: false
+  
+  liquibase:
+    enabled: false
+
+# Test specific settings
+mediroute:
+  optimization:
+    timeout-seconds: 10  # Very short for tests
+  geocoding:
+    cache-enabled: false  # Disable caching in tests
+
+logging:
+  level:
+    com.mediroute: DEBUG
+    org.springframework.test: INFO

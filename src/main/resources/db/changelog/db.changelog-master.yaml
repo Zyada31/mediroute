@@ -1,18 +1,18 @@
-databaseChangeLog:
-  - changeSet:
-      id: 001-baseline-schema
-      author: Semere
-      changes:
-        - sqlFile:
-            path: baseline-schema.sql
-            relativeToChangelogFile: true
-            endDelimiter: ";"
-            splitStatements: true
-            stripComments: true
+#databaseChangeLog:
 #  - changeSet:
-#      id: 004-fix-assignment-audit-id
+#      id: 001-baseline-schema
 #      author: Semere
 #      changes:
 #        - sqlFile:
-#            path: 004-fix-assignment-audit-id.sql
+#            path: baseline-schema.sql
 #            relativeToChangelogFile: true
+#            endDelimiter: ";"
+#            splitStatements: true
+#            stripComments: true
+##  - changeSet:
+##      id: 004-fix-assignment-audit-id
+##      author: Semere
+##      changes:
+##        - sqlFile:
+##            path: 004-fix-assignment-audit-id.sql
+##            relativeToChangelogFile: true

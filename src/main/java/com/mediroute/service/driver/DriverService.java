@@ -402,8 +402,8 @@ public class DriverService {
         // Simplified Haversine distance calculation
         double lat1 = Math.toRadians(driver.getBaseLat());
         double lon1 = Math.toRadians(driver.getBaseLng());
-        double lat2 = Math.toRadians(ride.getPickupLat());
-        double lon2 = Math.toRadians(ride.getPickupLng());
+        double lat2 = Math.toRadians(ride.getPickupLocation().getLatitude());
+        double lon2 = Math.toRadians(ride.getPickupLocation().getLongitude());
 
         double dlat = lat2 - lat1;
         double dlon = lon2 - lon1;

@@ -1,323 +1,341 @@
 package com.mediroute.service.ride;
 
-import com.mediroute.dto.ParseResult;
-import com.mediroute.dto.Priority;
-import com.mediroute.dto.RideStatus;
+import com.mediroute.dto.*;
 import com.mediroute.entity.Patient;
 import com.mediroute.entity.Ride;
-import com.mediroute.repository.PatientRepository;
-import com.mediroute.service.parser.EnhancedExcelRideParser;
+import com.mediroute.entity.RideAudit;
+import com.mediroute.exceptions.RideNotFoundException;
 import com.mediroute.repository.RideRepository;
-import jakarta.transaction.Transactional;
+import com.mediroute.repository.RideAuditRepository;
+import com.mediroute.service.base.BaseService;
+import com.mediroute.service.parser.ExcelParserService;
+import com.mediroute.utils.LocationUtils;
 import lombok.RequiredArgsConstructor;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
+import io.swagger.v3.oas.annotations.tags.Tag;
 
 import java.io.IOException;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
-import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
-public class RideService {
-    Logger log = LoggerFactory.getLogger(RideService.class);
+@Slf4j
+@Tag(name = "Ride Service", description = "Ride management operations")
+public class RideService implements BaseService<Ride, Long> {
+
     private final RideRepository rideRepository;
-    private final EnhancedExcelRideParser excelRideParser;
-    private final EnhancedMedicalTransportOptimizer medicalTransportOptimizer;
-    private final PatientRepository patientRepository;
+    private final RideAuditRepository rideAuditRepository;
+    private final ExcelParserService excelParserService;
+    private final OptimizationService optimizationService;
 
-    /**
-     * Parse Excel file with medical transport features and optional optimization
-     */
-    public ParseResult parseExcelWithMedicalFeatures(
-            MultipartFile file,
-            LocalDate assignmentDate,
-            boolean runOptimization) throws IOException {
+    // ========== Base Service Implementation ==========
 
-        log.info("📋 Parsing Excel file with medical transport features for date: {}", assignmentDate);
+    @Override
+    @Transactional
+    public Ride save(Ride ride) {
+        log.debug("Saving ride for patient: {}", ride.getPatient().getName());
+        return rideRepository.save(ride);
+    }
 
-        ParseResult result = excelRideParser.parseExcelWithMedicalFeatures(
-                file, assignmentDate, runOptimization);
+    @Override
+    @Transactional(readOnly = true)
+    public Optional<Ride> findById(Long id) {
+        return rideRepository.findById(id);
+    }
 
-        // Validate parsed rides
-        validateParsedRides(result.getRides());
+    @Override
+    @Transactional(readOnly = true)
+    public List<Ride> findAll() {
+        return rideRepository.findAll();
+    }
 
-        log.info("✅ Parsed {} rides with {} skipped. Success rate: {:.1f}%",
-                result.getSuccessfulRows(), result.getSkippedRows(), result.getSuccessRate());
+    @Override
+    @Transactional(readOnly = true)
+    public Page<Ride> findAll(Pageable pageable) {
+        return rideRepository.findAll(pageable);
+    }
 
-        if (runOptimization && result.isOptimizationRan()) {
-            log.info("🎯 Optimization completed as part of parsing process");
+    @Override
+    @Transactional(readOnly = true)
+    public Page<Ride> findAll(Specification<Ride> specification, Pageable pageable) {
+        return rideRepository.findAll(specification, pageable);
+    }
+
+    @Override
+    @Transactional
+    public void deleteById(Long id) {
+        log.info("Deleting ride with ID: {}", id);
+        rideRepository.deleteById(id);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public boolean existsById(Long id) {
+        return rideRepository.existsById(id);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public long count() {
+        return rideRepository.count();
+    }
+
+    @Transactional
+    public Ride createRide(RideCreateDTO createDTO) {
+        log.info("Creating new ride for patient ID: {}", createDTO.getPatientId());
+
+        Ride ride = Ride.builder()
+                .patient(Patient.builder().id(createDTO.getPatientId()).build())
+                .pickupLocation(LocationUtils.createLocationFromAddress(createDTO.getPickupLocation()))
+                .dropoffLocation(LocationUtils.createLocationFromAddress(createDTO.getDropoffLocation()))
+                .pickupTime(createDTO.getPickupTime())
+                .dropoffTime(createDTO.getDropoffTime())
+                .appointmentDuration(createDTO.getAppointmentDuration())
+                .rideType(createDTO.getRideType())
+                .priority(createDTO.getPriority())
+                .requiredVehicleType(createDTO.getRequiredVehicleType())
+                .requiredSkills(createDTO.getRequiredSkills())
+                .isRoundTrip(createDTO.getIsRoundTrip())
+                .status(RideStatus.SCHEDULED)
+                .build();
+
+        // Set time windows
+        if (createDTO.getPickupTime() != null) {
+            ride.setPickupTimeWindow(createDTO.getPickupTime(), 5);
+        }
+        if (createDTO.getDropoffTime() != null) {
+            ride.setDropoffTimeWindow(createDTO.getDropoffTime(), 5);
         }
 
-        return result;
+        return save(ride);
     }
 
-    /**
-     * Parse Excel file using legacy parser (backward compatibility)
-     */
-    public List<Ride> parseExcelFile(MultipartFile file, LocalDate assignmentDate) throws IOException {
-        log.info("📋 Parsing Excel file using legacy parser for date: {}", assignmentDate);
+    @Transactional
+    public Ride updateRide(Long id, RideUpdateDTO updateDTO) {
+        log.info("Updating ride with ID: {}", id);
 
-        List<Ride> rides = excelRideParser.parseExcel(file, assignmentDate);
-        validateParsedRides(rides);
+        Ride ride = findById(id).orElseThrow(() -> new RideNotFoundException(id));
+        Ride originalRide = createRideCopy(ride); // For audit trail
 
-        log.info("✅ Parsed {} rides using legacy parser", rides.size());
-        return rides;
-    }
-
-    /**
-     * Run medical transport optimization on rides
-     */
-    public EnhancedMedicalTransportOptimizer.OptimizationResult optimizeSchedule(List<Ride> rides) {
-        if (rides == null || rides.isEmpty()) {
-            log.warn("⚠️ No rides to optimize");
-            return EnhancedMedicalTransportOptimizer.OptimizationResult.empty();
+        // Update fields and create audit entries
+        if (updateDTO.getPickupTime() != null && !updateDTO.getPickupTime().equals(ride.getPickupTime())) {
+            createAuditEntry(ride, "pickupTime",
+                    ride.getPickupTime().toString(), updateDTO.getPickupTime().toString(), "SYSTEM");
+            ride.setPickupTime(updateDTO.getPickupTime());
+            ride.setPickupTimeWindow(updateDTO.getPickupTime(), 5);
         }
 
-        log.info("🚀 Starting medical transport optimization for {} rides", rides.size());
+        if (updateDTO.getDropoffTime() != null && !updateDTO.getDropoffTime().equals(ride.getDropoffTime())) {
+            createAuditEntry(ride, "dropoffTime",
+                    ride.getDropoffTime() != null ? ride.getDropoffTime().toString() : null,
+                    updateDTO.getDropoffTime().toString(), "SYSTEM");
+            ride.setDropoffTime(updateDTO.getDropoffTime());
+            ride.setDropoffTimeWindow(updateDTO.getDropoffTime(), 5);
+        }
 
-        EnhancedMedicalTransportOptimizer.OptimizationResult result =
-                medicalTransportOptimizer.optimizeSchedule(rides);
+        if (updateDTO.getStatus() != null && !updateDTO.getStatus().equals(ride.getStatus())) {
+            createAuditEntry(ride, "status",
+                    ride.getStatus().toString(), updateDTO.getStatus().toString(), "SYSTEM");
+            ride.setStatus(updateDTO.getStatus());
+        }
 
-        logOptimizationResults(result);
-        return result;
+        if (updateDTO.getPriority() != null && !updateDTO.getPriority().equals(ride.getPriority())) {
+            createAuditEntry(ride, "priority",
+                    ride.getPriority().toString(), updateDTO.getPriority().toString(), "SYSTEM");
+            ride.setPriority(updateDTO.getPriority());
+        }
+
+        return save(ride);
     }
 
-    /**
-     * Optimize unassigned rides for a specific date
-     */
-    public EnhancedMedicalTransportOptimizer.OptimizationResult optimizeUnassignedRides(LocalDate date) {
-        List<Ride> unassignedRides = rideRepository.findByPickupTimeBetweenAndStatus(
-                date.atStartOfDay(),
-                date.plusDays(1).atStartOfDay(),
-                RideStatus.SCHEDULED
+    // ========== Excel Import Operations ==========
+
+    @Transactional
+    public ParseResult parseExcelFile(MultipartFile file, LocalDate assignmentDate) throws IOException {
+        log.info("Parsing Excel file for assignment date: {}", assignmentDate);
+        return excelParserService.parseExcelWithMedicalFeatures(file, assignmentDate, false);
+    }
+
+    @Transactional
+    public ParseResult parseAndOptimizeExcelFile(MultipartFile file, LocalDate assignmentDate) throws IOException {
+        log.info("Parsing and optimizing Excel file for assignment date: {}", assignmentDate);
+        return excelParserService.parseExcelWithMedicalFeatures(file, assignmentDate, true);
+    }
+
+    // ========== Search and Filter Operations ==========
+
+    @Transactional(readOnly = true)
+    public List<Ride> findRidesByDate(LocalDate date) {
+        LocalDateTime start = date.atStartOfDay();
+        LocalDateTime end = date.plusDays(1).atStartOfDay();
+        return rideRepository.findByPickupTimeBetween(start, end);
+    }
+
+    @Transactional(readOnly = true)
+    public List<Ride> findRidesByDateAndStatus(LocalDate date, RideStatus status) {
+        LocalDateTime start = date.atStartOfDay();
+        LocalDateTime end = date.plusDays(1).atStartOfDay();
+        return rideRepository.findByPickupTimeBetweenAndStatus(start, end, status);
+    }
+
+    @Transactional(readOnly = true)
+    public List<Ride> findRidesByDriver(Long driverId, LocalDate date) {
+        LocalDateTime start = date.atStartOfDay();
+        LocalDateTime end = date.plusDays(1).atStartOfDay();
+        return rideRepository.findByAnyDriverAndPickupTimeBetween(driverId, start, end);
+    }
+
+    @Transactional(readOnly = true)
+    public List<Ride> findUnassignedRides(LocalDate date) {
+        LocalDateTime start = date.atStartOfDay();
+        LocalDateTime end = date.plusDays(1).atStartOfDay();
+        return rideRepository.findUnassignedRidesInTimeRange(start, end);
+    }
+
+    @Transactional(readOnly = true)
+    public List<Ride> findEmergencyRides() {
+        return rideRepository.findByPriorityAndStatusOrderByPickupTimeAsc(Priority.EMERGENCY, RideStatus.SCHEDULED);
+    }
+
+    @Transactional(readOnly = true)
+    public List<Ride> findRidesByVehicleType(String vehicleType, LocalDate date) {
+        LocalDateTime start = date.atStartOfDay();
+        LocalDateTime end = date.plusDays(1).atStartOfDay();
+        return rideRepository.findByRequiredVehicleTypeAndPickupTimeBetween(vehicleType, start, end);
+    }
+
+    @Transactional(readOnly = true)
+    public List<Ride> findRidesByCriteria(RideSearchDTO criteria) {
+        LocalDateTime start = criteria.getStartDate().atStartOfDay();
+        LocalDateTime end = criteria.getEndDate().plusDays(1).atStartOfDay();
+
+        return rideRepository.findRidesWithCriteria(
+                criteria.getStatus(),
+                criteria.getPriority(),
+                criteria.getVehicleType(),
+                criteria.getDriverId(),
+                start,
+                end
         );
+    }
 
+    // ========== Optimization Operations ==========
+
+    @Transactional
+    public OptimizationResult optimizeRides(List<Ride> rides) {
+        log.info("Starting optimization for {} rides", rides.size());
+        return optimizationService.optimizeSchedule(rides);
+    }
+
+    @Transactional
+    public OptimizationResult optimizeRidesForDate(LocalDate date) {
+        List<Ride> unassignedRides = findUnassignedRides(date);
         if (unassignedRides.isEmpty()) {
-            log.info("✅ No unassigned rides found for date: {}", date);
-            return EnhancedMedicalTransportOptimizer.OptimizationResult.empty();
+            log.info("No unassigned rides found for date: {}", date);
+            return OptimizationResult.empty();
         }
-
-        log.info("🔄 Found {} unassigned rides for date: {}", unassignedRides.size(), date);
-        return optimizeSchedule(unassignedRides);
+        return optimizeRides(unassignedRides);
     }
 
-    /**
-     * Optimize rides within a time range
-     */
-    public EnhancedMedicalTransportOptimizer.OptimizationResult optimizeRidesInTimeRange(
-            LocalDateTime from, LocalDateTime to) {
-
-        List<Ride> rides = rideRepository.findByPickupTimeBetweenAndStatus(from, to, RideStatus.SCHEDULED);
-
-        log.info("🔄 Found {} rides between {} and {}", rides.size(), from, to);
-        return optimizeSchedule(rides);
-    }
-
-    /**
-     * Get rides by status for a specific date
-     */
-    public List<Ride> getRidesByStatusAndDate(RideStatus status, LocalDate date) {
-        return rideRepository.findByPickupTimeBetweenAndStatus(
-                date.atStartOfDay(),
-                date.plusDays(1).atStartOfDay(),
-                status
-        );
-    }
-
-    /**
-     * Get rides requiring specific vehicle types
-     */
-    public List<Ride> getRidesByVehicleType(String vehicleType, LocalDate date) {
-        return rideRepository.findByPickupTimeBetweenAndRequiredVehicleType(
-                date.atStartOfDay(),
-                date.plusDays(1).atStartOfDay(),
-                vehicleType
-        );
-    }
-
-    /**
-     * Get emergency rides for immediate assignment
-     */
-    public List<Ride> getEmergencyRides() {
-        return rideRepository.findByPriorityAndStatusOrderByPickupTimeAsc(
-                Priority.EMERGENCY,
-                RideStatus.SCHEDULED
-        );
-    }
-
-    /**
-     * Re-optimize rides when there are changes (cancellations, new rides)
-     */
-    public EnhancedMedicalTransportOptimizer.OptimizationResult reOptimizeAffectedRides(
-            List<Long> affectedRideIds) {
-
+    @Transactional
+    public OptimizationResult reOptimizeAffectedRides(List<Long> affectedRideIds) {
         if (affectedRideIds == null || affectedRideIds.isEmpty()) {
-            return EnhancedMedicalTransportOptimizer.OptimizationResult.empty();
+            return OptimizationResult.empty();
         }
 
-        // Get all rides for the same dates as affected rides
         List<Ride> affectedRides = rideRepository.findAllById(affectedRideIds);
-        if (affectedRides.isEmpty()) {
-            return EnhancedMedicalTransportOptimizer.OptimizationResult.empty();
-        }
-
-        // Find all rides on the same dates that might need re-optimization
         List<LocalDate> affectedDates = affectedRides.stream()
                 .map(ride -> ride.getPickupTime().toLocalDate())
                 .distinct()
-                .collect(Collectors.toList());
+                .toList();
 
         List<Ride> ridesToReOptimize = affectedDates.stream()
-                .flatMap(date -> getRidesByStatusAndDate(RideStatus.SCHEDULED, date).stream())
-                .collect(Collectors.toList());
+                .flatMap(date -> findUnassignedRides(date).stream())
+                .toList();
 
-        log.info("🔄 Re-optimizing {} rides affected by changes to {} rides on {} dates",
+        log.info("Re-optimizing {} rides affected by changes to {} rides on {} dates",
                 ridesToReOptimize.size(), affectedRideIds.size(), affectedDates.size());
 
-        return optimizeSchedule(ridesToReOptimize);
+        return optimizeRides(ridesToReOptimize);
     }
 
-    /**
-     * Validate parsed rides for required fields and data integrity
-     */
-    private void validateParsedRides(List<Ride> rides) {
-        if (rides == null || rides.isEmpty()) {
-            return;
-        }
+    // ========== Audit Operations ==========
 
-        int invalidRides = 0;
-        for (Ride ride : rides) {
-            if (!isValidRide(ride)) {
-                invalidRides++;
-                log.warn("⚠️ Invalid ride found: ID={}, missing required fields", ride.getId());
-            }
-        }
-
-        if (invalidRides > 0) {
-            log.warn("⚠️ Found {} rides with missing required fields out of {} total rides",
-                    invalidRides, rides.size());
-        }
+    @Transactional(readOnly = true)
+    public List<RideAudit> getRideAuditHistory(Long rideId) {
+        return rideAuditRepository.findByRideIdOrderByChangedAtDesc(rideId);
     }
 
-    /**
-     * Check if a ride has all required fields for optimization
-     */
-    private boolean isValidRide(Ride ride) {
-        return ride != null &&
-                ride.getPickupLocation() != null && !ride.getPickupLocation().isBlank() &&
-                ride.getDropoffLocation() != null && !ride.getDropoffLocation().isBlank() &&
-                ride.getPickupLat() != null && ride.getPickupLng() != null &&
-                ride.getDropoffLat() != null && ride.getDropoffLng() != null &&
-                ride.getPickupTime() != null &&
-                ride.getPatient() != null;
+    @Transactional
+    private void createAuditEntry(Ride ride, String fieldName, String oldValue, String newValue, String changedBy) {
+        RideAudit audit = RideAudit.builder()
+                .ride(ride)
+                .fieldName(fieldName)
+                .oldValue(oldValue)
+                .newValue(newValue)
+                .changedBy(changedBy)
+                .systemGenerated(true)
+                .build();
+
+        rideAuditRepository.save(audit);
     }
 
-    /**
-     * Log optimization results
-     */
-    private void logOptimizationResults(EnhancedMedicalTransportOptimizer.OptimizationResult result) {
-        if (result == null) {
-            log.warn("⚠️ Optimization result is null");
-            return;
-        }
+    // ========== Statistics Operations ==========
 
-        log.info("📊 Optimization Results:");
-        log.info("   📈 Success Rate: {:.1f}%", result.getSuccessRate());
-        log.info("   ✅ Assigned Rides: {}", result.getAssignedRideCount());
-        log.info("   👥 Drivers Used: {}", result.getAssignedDriverCount());
+    @Transactional(readOnly = true)
+    public RideStatisticsDTO getRideStatistics(LocalDate date) {
+        LocalDateTime start = date.atStartOfDay();
+        LocalDateTime end = date.plusDays(1).atStartOfDay();
 
-        if (!result.getUnassignedReasons().isEmpty()) {
-            log.warn("   ❌ Unassigned Rides: {}", result.getUnassignedReasons().size());
-            result.getUnassignedReasons().entrySet().stream()
-                    .limit(5) // Show first 5 unassigned reasons
-                    .forEach(entry -> log.warn("      Ride {}: {}", entry.getKey(), entry.getValue()));
-        }
+        List<Ride> allRides = rideRepository.findByPickupTimeBetween(start, end);
 
-        if (result.getBatchId() != null) {
-            log.info("   🆔 Batch ID: {}", result.getBatchId());
-        }
-    }
-
-    /**
-     * Get optimization statistics for reporting
-     */
-    public OptimizationStats getOptimizationStats(LocalDate date) {
-        List<Ride> allRides = rideRepository.findByPickupTimeBetween(
-                date.atStartOfDay(),
-                date.plusDays(1).atStartOfDay()
-        );
-
+        long totalRides = allRides.size();
         long assignedRides = allRides.stream()
-                .filter(ride -> ride.getPickupDriver() != null || ride.getDriver() != null)
+                .filter(Ride::isAssigned)
                 .count();
-
         long emergencyRides = allRides.stream()
                 .filter(ride -> ride.getPriority() == Priority.EMERGENCY)
                 .count();
-
         long wheelchairRides = allRides.stream()
                 .filter(ride -> "wheelchair_van".equals(ride.getRequiredVehicleType()))
                 .count();
-
         long roundTripRides = allRides.stream()
                 .filter(ride -> Boolean.TRUE.equals(ride.getIsRoundTrip()))
                 .count();
 
-        return new OptimizationStats(
-                allRides.size(),
-                (int) assignedRides,
-                allRides.size() - (int) assignedRides,
-                (int) emergencyRides,
-                (int) wheelchairRides,
-                (int) roundTripRides,
-                allRides.isEmpty() ? 0.0 : (assignedRides * 100.0) / allRides.size()
-        );
+        return RideStatisticsDTO.builder()
+                .date(date)
+                .totalRides((int) totalRides)
+                .assignedRides((int) assignedRides)
+                .unassignedRides((int) (totalRides - assignedRides))
+                .emergencyRides((int) emergencyRides)
+                .wheelchairRides((int) wheelchairRides)
+                .roundTripRides((int) roundTripRides)
+                .assignmentRate(totalRides > 0 ? (assignedRides * 100.0 / totalRides) : 0.0)
+                .build();
     }
 
-    /**
-     * Statistics class for optimization reporting
-     */
-    public static class OptimizationStats {
-        private final int totalRides;
-        private final int assignedRides;
-        private final int unassignedRides;
-        private final int emergencyRides;
-        private final int wheelchairRides;
-        private final int roundTripRides;
-        private final double successRate;
+    // ========== Helper Methods ==========
 
-        public OptimizationStats(int totalRides, int assignedRides, int unassignedRides,
-                                 int emergencyRides, int wheelchairRides, int roundTripRides,
-                                 double successRate) {
-            this.totalRides = totalRides;
-            this.assignedRides = assignedRides;
-            this.unassignedRides = unassignedRides;
-            this.emergencyRides = emergencyRides;
-            this.wheelchairRides = wheelchairRides;
-            this.roundTripRides = roundTripRides;
-            this.successRate = successRate;
-        }
-
-        // Getters
-        public int getTotalRides() { return totalRides; }
-        public int getAssignedRides() { return assignedRides; }
-        public int getUnassignedRides() { return unassignedRides; }
-        public int getEmergencyRides() { return emergencyRides; }
-        public int getWheelchairRides() { return wheelchairRides; }
-        public int getRoundTripRides() { return roundTripRides; }
-        public double getSuccessRate() { return successRate; }
-    }
-    /**
-     * Find a patient by their phone number
-     */
-    @Transactional
-    public Optional<Patient> findByPhoneNumber(String phoneNumber) {
-        return patientRepository.findByPhoneNumber(phoneNumber);
+    private Ride createRideCopy(Ride original) {
+        return Ride.builder()
+                .id(original.getId())
+                .patient(original.getPatient())
+                .pickupLocation(original.getPickupLocation())
+                .dropoffLocation(original.getDropoffLocation())
+                .pickupTime(original.getPickupTime())
+                .dropoffTime(original.getDropoffTime())
+                .status(original.getStatus())
+                .priority(original.getPriority())
+                .build();
     }
 }

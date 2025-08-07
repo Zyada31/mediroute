@@ -540,10 +540,14 @@ public class EnhancedMedicalTransportOptimizer {
     }
 
     private double calculateDistanceToPickup(Driver driver, Ride ride) {
+        if (ride.getPickupLocation() == null || !ride.getPickupLocation().isValid()) {
+            return Double.MAX_VALUE; // Invalid location, lowest priority
+        }
+
         double lat1 = Math.toRadians(driver.getBaseLat());
         double lon1 = Math.toRadians(driver.getBaseLng());
-        double lat2 = Math.toRadians(ride.getPickupLat());
-        double lon2 = Math.toRadians(ride.getPickupLng());
+        double lat2 = Math.toRadians(ride.getPickupLocation().getLatitude());
+        double lon2 = Math.toRadians(ride.getPickupLocation().getLongitude());
 
         double dlat = lat2 - lat1;
         double dlon = lon2 - lon1;
@@ -601,7 +605,14 @@ public class EnhancedMedicalTransportOptimizer {
         }
 
         for (Ride ride : rides) {
-            mapping.addLocation(ride.getPickupLng() + "," + ride.getPickupLat(), "ROUND_TRIP:" + ride.getId());
+            // OLD CODE - Remove this:
+            // mapping.addLocation(ride.getPickupLng() + "," + ride.getPickupLat(), "ROUND_TRIP:" + ride.getId());
+
+            // NEW CODE - Use this instead:
+            if (ride.getPickupLocation() != null && ride.getPickupLocation().isValid()) {
+                String coords = ride.getPickupLocation().getLongitude() + "," + ride.getPickupLocation().getLatitude();
+                mapping.addLocation(coords, "ROUND_TRIP:" + ride.getId());
+            }
         }
 
         return mapping;
@@ -615,8 +626,20 @@ public class EnhancedMedicalTransportOptimizer {
         }
 
         for (Ride ride : rides) {
-            mapping.addLocation(ride.getPickupLng() + "," + ride.getPickupLat(), "PICKUP:" + ride.getId());
-            mapping.addLocation(ride.getDropoffLng() + "," + ride.getDropoffLat(), "DROPOFF:" + ride.getId());
+            // OLD CODE - Remove this:
+            // mapping.addLocation(ride.getPickupLng() + "," + ride.getPickupLat(), "PICKUP:" + ride.getId());
+            // mapping.addLocation(ride.getDropoffLng() + "," + ride.getDropoffLat(), "DROPOFF:" + ride.getId());
+
+            // NEW CODE - Use this instead:
+            if (ride.getPickupLocation() != null && ride.getPickupLocation().isValid()) {
+                String pickupCoords = ride.getPickupLocation().getLongitude() + "," + ride.getPickupLocation().getLatitude();
+                mapping.addLocation(pickupCoords, "PICKUP:" + ride.getId());
+            }
+
+            if (ride.getDropoffLocation() != null && ride.getDropoffLocation().isValid()) {
+                String dropoffCoords = ride.getDropoffLocation().getLongitude() + "," + ride.getDropoffLocation().getLatitude();
+                mapping.addLocation(dropoffCoords, "DROPOFF:" + ride.getId());
+            }
         }
 
         return mapping;

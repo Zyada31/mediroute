@@ -1,0 +1,74 @@
+
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+                   xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                   xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+                   http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.25.xsd">
+
+    <!-- Patient Indexes -->
+    <changeSet id="001-create-patient-indexes" author="mediroute">
+        <createIndex tableName="patients" indexName="idx_patients_phone">
+            <column name="phone"/>
+        </createIndex>
+
+        <createIndex tableName="patients" indexName="idx_patients_name">
+            <column name="name"/>
+        </createIndex>
+
+        <createIndex tableName="patients" indexName="idx_patients_active">
+            <column name="is_active"/>
+        </createIndex>
+    </changeSet>
+
+    <!-- Driver Indexes -->
+    <changeSet id="002-create-driver-indexes" author="mediroute">
+        <createIndex tableName="drivers" indexName="idx_drivers_active">
+            <column name="active"/>
+        </createIndex>
+
+        <createIndex tableName="drivers" indexName="idx_drivers_vehicle_type">
+            <column name="vehicle_type"/>
+        </createIndex>
+
+        <createIndex tableName="drivers" indexName="idx_drivers_capabilities">
+            <column name="wheelchair_accessible"/>
+            <column name="stretcher_capable"/>
+            <column name="oxygen_equipped"/>
+        </createIndex>
+
+        <createIndex tableName="drivers" indexName="idx_drivers_location">
+            <column name="base_lat"/>
+            <column name="base_lng"/>
+        </createIndex>
+    </changeSet>
+
+    <!-- Ride Indexes -->
+    <changeSet id="003-create-ride-indexes" author="mediroute">
+        <createIndex tableName="rides" indexName="idx_rides_pickup_time">
+            <column name="pickup_time"/>
+        </createIndex>
+
+        <createIndex tableName="rides" indexName="idx_rides_status">
+            <column name="status"/>
+        </createIndex>
+
+        <createIndex tableName="rides" indexName="idx_rides_priority">
+            <column name="priority"/>
+        </createIndex>
+
+        <createIndex tableName="rides" indexName="idx_rides_batch">
+            <column name="optimization_batch_id"/>
+        </createIndex>
+
+        <createIndex tableName="rides" indexName="idx_rides_patient_time">
+            <column name="patient_id"/>
+            <column name="pickup_time"/>
+        </createIndex>
+
+        <createIndex tableName="rides" indexName="idx_rides_driver_time">
+            <column name="pickup_driver_id"/>
+            <column name="pickup_time"/>
+        </createIndex>
+    </changeSet>
+
+</databaseChangeLog>
