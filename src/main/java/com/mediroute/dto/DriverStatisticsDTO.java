@@ -18,7 +18,7 @@ public class DriverStatisticsDTO {
     private Long totalActiveDrivers;
 
     @Schema(description = "Vehicle type counts")
-    private List<Object[]> vehicleTypeCounts;
+    private List<VehicleTypeCount> vehicleTypeCounts;
 
     @Schema(description = "Wheelchair accessible drivers")
     private Integer wheelchairAccessibleCount;
@@ -28,4 +28,12 @@ public class DriverStatisticsDTO {
 
     @Schema(description = "Oxygen equipped drivers")
     private Integer oxygenEquippedCount;
+
+    @Data
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class VehicleTypeCount {
+        private String vehicleType;
+        private Integer count;
+    }
 }

@@ -15,16 +15,16 @@ import java.util.List;
 @Schema(description = "Driver statistics summary")
 public class DriverStatistics {
     @Schema(description = "Total active drivers")
-    private Long totalActiveDrivers;
+    private Long activeDrivers;
 
     @Schema(description = "Wheelchair accessible drivers")
-    private Integer wheelchairAccessibleCount;
+    private Integer wheelchairCapableDrivers;
 
     @Schema(description = "Stretcher capable drivers")
-    private Integer stretcherCapableCount;
+    private Integer stretcherCapableDrivers;
 
     @Schema(description = "Oxygen equipped drivers")
-    private Integer oxygenEquippedCount;
+    private Integer oxygenEquippedDrivers;
 
     @Schema(description = "Vehicle type distribution")
     private List<VehicleTypeCount> vehicleTypeDistribution;
@@ -40,4 +40,8 @@ public class DriverStatistics {
         @Schema(description = "Number of drivers with this vehicle type")
         private Integer count;
     }
+
+        private int totalDrivers;
+        private double averageUtilizationRate;
+
 }

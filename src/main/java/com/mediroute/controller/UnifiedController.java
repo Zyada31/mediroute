@@ -226,12 +226,12 @@ public class UnifiedController {
         return ResponseEntity.ok(summaryService.getSummaryForDate(start, end));
     }
 
-    @Operation(summary = "Get active drivers", description = "Retrieve all active drivers")
-    @GetMapping("/drivers/active")
-    public ResponseEntity<List<Driver>> getActiveDrivers() {
-        List<Driver> drivers = driverRepository.findByActiveTrue();
-        return ResponseEntity.ok(drivers);
-    }
+//    @Operation(summary = "Get active drivers", description = "Retrieve all active drivers")
+//    @GetMapping("/drivers/active")
+//    public ResponseEntity<List<Driver>> getActiveDrivers() {
+//        List<Driver> drivers = driverRepository.findByActiveTrue();
+//        return ResponseEntity.ok(drivers);
+//    }
 
     @Operation(summary = "Get qualified drivers", description = "Get drivers qualified for medical transport")
     @GetMapping("/drivers/qualified")
@@ -333,10 +333,10 @@ public class UnifiedController {
                 .count();
 
         DriverStatistics stats = DriverStatistics.builder()
-                .totalActiveDrivers((long) activeDrivers.size())
-                .wheelchairAccessibleCount((int) wheelchairAccessible)
-                .stretcherCapableCount((int) stretcherCapable)
-                .oxygenEquippedCount((int) oxygenEquipped)
+                .activeDrivers((long) activeDrivers.size())
+                .wheelchairCapableDrivers((int) wheelchairAccessible)
+                .stretcherCapableDrivers((int) stretcherCapable)
+                .oxygenEquippedDrivers((int) oxygenEquipped)
                 .build();
 
         return ResponseEntity.ok(stats);

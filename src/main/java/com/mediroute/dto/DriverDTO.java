@@ -1,9 +1,6 @@
 package com.mediroute.dto;
 
-import lombok.AllArgsConstructor;
-import lombok.Data;
-import lombok.Getter;
-import lombok.Setter;
+import lombok.*;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -13,6 +10,7 @@ import java.util.Map;
 @AllArgsConstructor
 @Getter
 @Setter
+@NoArgsConstructor
 public class DriverDTO {
     private String name;
     private String email;
