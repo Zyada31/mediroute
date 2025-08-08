@@ -33,16 +33,6 @@ public class EnhancedMedicalTransportOptimizer {
     private static final int SHORT_APPOINTMENT_THRESHOLD = 15;
     private static final int OPTIMIZATION_TIMEOUT_SECONDS = 45;
 
-    // Remove OR-Tools dependency for now - use fallback algorithm
-    // static {
-    //     try {
-    //         System.loadLibrary("jniortools");
-    //         log.info("✅ OR-Tools library loaded successfully");
-    //     } catch (UnsatisfiedLinkError e) {
-    //         log.warn("⚠️ OR-Tools library not available, using fallback algorithm");
-    //     }
-    // }
-
     /**
      * Main optimization entry point for medical transport
      */

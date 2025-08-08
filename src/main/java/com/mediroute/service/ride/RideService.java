@@ -33,10 +33,16 @@ public class RideService {
         return rideRepository.findByIdWithAudit(id);
     }
 
-    public List<Ride> findRidesByDate(LocalDate date) {
+    @Transactional(readOnly = true)
+    public List<RideDetailDTO> findRidesByDate(LocalDate date) {
         LocalDateTime start = date.atStartOfDay();
         LocalDateTime end = date.plusDays(1).atStartOfDay();
-        return rideRepository.findByPickupTimeBetweenWithDriversAndPatient(start, end);
+
+        // Use the JOIN FETCH query
+        return rideRepository.findByPickupTimeBetweenWithDriversAndPatient(start, end)
+                .stream()
+                .map(RideDetailDTO::fromEntity)
+                .collect(Collectors.toList());
     }
 
     public List<Ride> findRidesByDateAndStatus(LocalDate date, RideStatus status) {
@@ -58,11 +64,11 @@ public class RideService {
     }
 
     // Convert to DTOs to prevent lazy loading issues in controllers
-    public List<RideDetailDTO> findRidesByDateAsDTO(LocalDate date) {
-        return findRidesByDate(date).stream()
-                .map(RideDetailDTO::fromEntity)
-                .collect(Collectors.toList());
-    }
+//    public List<RideDetailDTO> findRidesByDateAsDTO(LocalDate date) {
+//        return findRidesByDate(date).stream()
+//                .map(RideDetailDTO::fromEntity)
+//                .collect(Collectors.toList());
+//    }
 
     public List<RideDetailDTO> findUnassignedRidesAsDTO(LocalDate date) {
         return findUnassignedRides(date).stream()

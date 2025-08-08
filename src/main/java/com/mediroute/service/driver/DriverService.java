@@ -2,6 +2,7 @@
 package com.mediroute.service.driver;
 
 import com.mediroute.dto.DriverDTO;
+import com.mediroute.dto.DriverDetailDTO;
 import com.mediroute.dto.DriverStatistics;
 import com.mediroute.dto.VehicleTypeEnum;
 import com.mediroute.entity.Driver;
@@ -12,6 +13,7 @@ import com.mediroute.repository.RideRepository;
 import com.mediroute.service.distance.GeocodingService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.hibernate.Hibernate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -276,10 +278,20 @@ public class DriverService {
         return driverRepository.findById(id);
     }
     // Add these to DriverService:
-    @Transactional(readOnly = true)
-    public List<DriverWorkload> getAllDriverWorkloads(LocalDate date) {
-        return driverRepository.findByActiveTrue().stream()
-                .map(driver -> getDriverWorkload(driver.getId(), date))
+//    @Transactional(readOnly = true)
+//    public List<DriverWorkload> getAllDriverWorkloads(LocalDate date) {
+//        return driverRepository.findByActiveTrue().stream()
+//                .map(driver -> getDriverWorkload(driver.getId(), date))
+//                .collect(Collectors.toList());
+//    }
+    public List<DriverDetailDTO> getAllDriversAsDTO() {
+        return driverRepository.findAll().stream()
+                .map(driver -> {
+                    // Force initialization while in transaction
+                    Hibernate.initialize(driver.getCertifications());
+                    Hibernate.initialize(driver.getSkills());
+                    return DriverDetailDTO.fromEntity(driver);
+                })
                 .collect(Collectors.toList());
     }
 
