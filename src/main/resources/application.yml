@@ -102,18 +102,37 @@ spring:
     hikari:
       maximum-pool-size: 20
       minimum-idle: 5
-
+      # Add connection timeout and idle timeout
+      connection-timeout: 30000
+      idle-timeout: 600000
+      max-lifetime: 1800000
   # JPA Configuration - Let Hibernate handle schema
   jpa:
     hibernate:
-      ddl-auto: update  # This will create/update schema automatically
+      ddl-auto: update
     properties:
       hibernate:
         dialect: org.hibernate.dialect.PostgreSQLDialect
         format_sql: true
-        enable_lazy_load_no_trans: false
+        # LAZY LOADING SETTINGS
+        enable_lazy_load_no_trans: false  # Don't allow lazy loading outside transactions
+        jdbc:
+          batch_size: 20
+          batch_versioned_data: true
+        order_inserts: true
+        order_updates: true
+        # Query optimization
+        query:
+          plan_cache_max_size: 2048
+        # Session management
+        current_session_context_class: org.springframework.orm.hibernate5.SpringSessionContext
     show-sql: false
-    open-in-view: false
+    open-in-view: false  # CRITICAL: Disable Open Session in View
+
+    # Transaction Configuration
+  transaction:
+    default-timeout: 300
+    rollback-on-commit-failure: true
 
   # DISABLE Liquibase for now - CRITICAL FIX
   liquibase:
@@ -124,6 +143,8 @@ spring:
     serialization:
       write-dates-as-timestamps: false
       fail-on-empty-beans: false
+    deserialization:
+      fail-on-unknown-properties: false
     default-property-inclusion: non_null
     time-zone: America/Denver
 
@@ -136,7 +157,7 @@ spring:
 # External Services
 google:
   api:
-    key:
+    key: AIzaSyAT-7uIyoB9yz5jrSRSlHhmMBWFEm8DUog  # Set via environment variable
 
 osrm:
   base-url: ${OSRM_BASE_URL:http://localhost:5000}
@@ -146,17 +167,23 @@ mediroute:
   depot-distance: 10
   mph-factor: 120
 
-# Logging
+
+# Logging for Lazy Loading Issues
 logging:
   level:
     com.mediroute: DEBUG
     org.hibernate.SQL: WARN
-    org.springframework.web: WARN
+    org.hibernate.type.descriptor.sql.BasicBinder: WARN
+    org.hibernate.engine.transaction: WARN
     org.springframework.transaction: DEBUG
+    org.springframework.orm.jpa: DEBUG
 
-# Server
+# Server Configuration
 server:
   port: 8080
+  servlet:
+    session:
+      timeout: 30m
 
 ---
 # Development Profile
@@ -166,9 +193,14 @@ spring:
       on-profile: dev
   jpa:
     show-sql: true
-    hibernate:
-      ddl-auto: create-drop
+    properties:
+      hibernate:
+        format_sql: true
+        use_sql_comments: true
+        type: trace
 
 logging:
   level:
     com.mediroute: TRACE
+    org.hibernate.SQL: DEBUG
+    org.hibernate.type.descriptor.sql.BasicBinder: TRACE

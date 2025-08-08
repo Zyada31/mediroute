@@ -2,6 +2,7 @@
 package com.mediroute.service.driver;
 
 import com.mediroute.dto.DriverDTO;
+import com.mediroute.dto.DriverStatistics;
 import com.mediroute.dto.VehicleTypeEnum;
 import com.mediroute.entity.Driver;
 import com.mediroute.entity.Patient;
@@ -269,6 +270,53 @@ public class DriverService {
         return (driver.getDriversLicenseExpiry() != null && driver.getDriversLicenseExpiry().isBefore(today)) ||
                 (driver.getMedicalTransportLicenseExpiry() != null && driver.getMedicalTransportLicenseExpiry().isBefore(today)) ||
                 (driver.getInsuranceExpiry() != null && driver.getInsuranceExpiry().isBefore(today));
+    }
+    @Transactional(readOnly = true)
+    public Optional<Driver> getDriverById(Long id) {
+        return driverRepository.findById(id);
+    }
+    // Add these to DriverService:
+    @Transactional(readOnly = true)
+    public List<DriverWorkload> getAllDriverWorkloads(LocalDate date) {
+        return driverRepository.findByActiveTrue().stream()
+                .map(driver -> getDriverWorkload(driver.getId(), date))
+                .collect(Collectors.toList());
+    }
+
+    @Transactional(readOnly = true)
+    public DriverStatistics getDriverStats() {
+        List<Driver> activeDrivers = driverRepository.findByActiveTrue();
+
+        return DriverStatistics.builder()
+                .activeDrivers((long) activeDrivers.size())
+                .wheelchairCapableDrivers((int) activeDrivers.stream()
+                        .filter(d -> Boolean.TRUE.equals(d.getWheelchairAccessible())).count())
+                .stretcherCapableDrivers((int) activeDrivers.stream()
+                        .filter(d -> Boolean.TRUE.equals(d.getStretcherCapable())).count())
+                .oxygenEquippedDrivers((int) activeDrivers.stream()
+                        .filter(d -> Boolean.TRUE.equals(d.getOxygenEquipped())).count())
+                .build();
+    }
+
+    @Transactional
+    public void deactivateDriver(Long id) {
+        Driver driver = driverRepository.findById(id)
+                .orElseThrow(() -> new IllegalArgumentException("Driver not found: " + id));
+        driver.setActive(false);
+        driverRepository.save(driver);
+    }
+
+    @Transactional
+    public void reactivateDriver(Long id) {
+        Driver driver = driverRepository.findById(id)
+                .orElseThrow(() -> new IllegalArgumentException("Driver not found: " + id));
+
+        if (!Boolean.TRUE.equals(driver.getIsTrainingComplete())) {
+            throw new IllegalStateException("Cannot reactivate driver without completed training");
+        }
+
+        driver.setActive(true);
+        driverRepository.save(driver);
     }
 
     // Supporting Classes

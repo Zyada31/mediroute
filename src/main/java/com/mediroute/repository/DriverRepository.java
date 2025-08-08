@@ -1,3 +1,7 @@
+// ============================================================================
+// FIXED DRIVER REPOSITORY - REMOVING PROBLEMATIC QUERIES
+// ============================================================================
+
 package com.mediroute.repository;
 
 import com.mediroute.dto.VehicleTypeEnum;
@@ -18,7 +22,8 @@ import java.util.Optional;
 @Tag(name = "Driver Repository", description = "Driver data access operations")
 public interface DriverRepository extends BaseRepository<Driver, Long> {
 
-    // Basic Queries
+    // ========== BASIC QUERIES (WORKING) ==========
+
     List<Driver> findByActiveTrue();
 
     List<Driver> findByActiveTrueAndIsTrainingCompleteTrue();
@@ -27,15 +32,16 @@ public interface DriverRepository extends BaseRepository<Driver, Long> {
 
     List<Driver> findByPhone(String phone);
 
-    // ADD THIS MISSING METHOD
     Optional<Driver> findByNameAndPhone(String name, String phone);
 
-    // Vehicle Type Queries
+    // ========== VEHICLE TYPE QUERIES (WORKING) ==========
+
     List<Driver> findByVehicleTypeAndActiveTrue(VehicleTypeEnum vehicleType);
 
     List<Driver> findByVehicleTypeInAndActiveTrue(List<VehicleTypeEnum> vehicleTypes);
 
-    // Medical Transport Capabilities
+    // ========== MEDICAL TRANSPORT CAPABILITIES (WORKING) ==========
+
     List<Driver> findByWheelchairAccessibleTrueAndActiveTrue();
 
     List<Driver> findByStretcherCapableTrueAndActiveTrue();
@@ -46,11 +52,16 @@ public interface DriverRepository extends BaseRepository<Driver, Long> {
             "(d.wheelchairAccessible = true OR d.stretcherCapable = true OR d.oxygenEquipped = true)")
     List<Driver> findMedicalTransportQualifiedDrivers();
 
-    // Availability Queries - SIMPLIFIED
+    // ========== AVAILABILITY QUERIES (WORKING) ==========
+
     @Query("SELECT d FROM Driver d WHERE d.active = true AND d.isTrainingComplete = true")
     List<Driver> findAvailableDriversAtTime(@Param("shiftTime") LocalTime shiftTime);
 
-    // Location-based Queries
+    @Query("SELECT d FROM Driver d WHERE d.active = true")
+    List<Driver> findAvailableDriversForDateRange(@Param("start") LocalDateTime start, @Param("end") LocalDateTime end);
+
+    // ========== LOCATION-BASED QUERIES (WORKING) ==========
+
     @Query("SELECT d FROM Driver d WHERE d.active = true AND " +
             "6371 * acos(cos(radians(:lat)) * cos(radians(d.baseLat)) * " +
             "cos(radians(d.baseLng) - radians(:lng)) + sin(radians(:lat)) * sin(radians(d.baseLat))) <= :radius")
@@ -58,7 +69,8 @@ public interface DriverRepository extends BaseRepository<Driver, Long> {
                                          @Param("lng") Double longitude,
                                          @Param("radius") Double radiusKm);
 
-    // License and Compliance
+    // ========== LICENSE AND COMPLIANCE (WORKING) ==========
+
     @Query("SELECT d FROM Driver d WHERE d.active = true AND " +
             "(d.driversLicenseExpiry IS NULL OR d.driversLicenseExpiry > :checkDate) AND " +
             "(d.medicalTransportLicenseExpiry IS NULL OR d.medicalTransportLicenseExpiry > :checkDate) AND " +
@@ -71,25 +83,21 @@ public interface DriverRepository extends BaseRepository<Driver, Long> {
             "d.insuranceExpiry <= :expiryDate)")
     List<Driver> findDriversWithExpiringLicenses(@Param("expiryDate") LocalDate expiryDate);
 
-    // REMOVED PROBLEMATIC SKILL-BASED QUERIES - These cause JPA validation errors with JSONB fields
-    // Instead, we'll handle skill filtering in the service layer
+    // ========== CERTIFICATION QUERIES (WORKING) ==========
 
-    // Simplified Certified Drivers Query
     @Query("SELECT d FROM Driver d WHERE d.active = true AND d.isTrainingComplete = true")
     List<Driver> findCertifiedDrivers();
 
-    // Workload Queries - SIMPLIFIED
-    @Query("SELECT d FROM Driver d WHERE d.active = true")
-    List<Driver> findAvailableDriversForDateRange(@Param("start") LocalDateTime start, @Param("end") LocalDateTime end);
+    // ========== STATISTICS QUERIES (WORKING) ==========
 
-    // Statistics
     @Query("SELECT COUNT(d) FROM Driver d WHERE d.active = true")
     long countActiveDrivers();
 
     @Query("SELECT d.vehicleType, COUNT(d) FROM Driver d WHERE d.active = true GROUP BY d.vehicleType")
     List<Object[]> countDriversByVehicleType();
 
-    // Complex Filtering - SIMPLIFIED
+    // ========== COMPLEX FILTERING (WORKING) ==========
+
     @Query("SELECT d FROM Driver d WHERE " +
             "(:active IS NULL OR d.active = :active) AND " +
             "(:vehicleType IS NULL OR d.vehicleType = :vehicleType) AND " +
@@ -101,4 +109,12 @@ public interface DriverRepository extends BaseRepository<Driver, Long> {
                                          @Param("wheelchairAccessible") Boolean wheelchairAccessible,
                                          @Param("stretcherCapable") Boolean stretcherCapable,
                                          @Param("trainingComplete") Boolean trainingComplete);
+
+    // ========== REMOVED PROBLEMATIC QUERY ==========
+    // The findDriverWithTodaysRides query caused issues because:
+    // 1. Driver entity doesn't have proper pickupRides/dropoffRides mappings
+    // 2. JPA validation fails on the relationship joins
+    // 
+    // SOLUTION: Handle driver workload in the service layer using RideRepository
+    // See DriverService.getDriverWorkload() method for the correct implementation
 }

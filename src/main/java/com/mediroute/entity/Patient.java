@@ -1,12 +1,14 @@
 package com.mediroute.entity;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.mediroute.dto.Location;
 import com.mediroute.dto.MobilityLevel;
-import com.mediroute.entity.embeddable.Location;
 import jakarta.persistence.*;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
+import org.hibernate.annotations.BatchSize;
 import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
 import org.springframework.data.annotation.CreatedDate;
@@ -40,7 +42,6 @@ public class Patient {
     @Column(name = "name", nullable = false)
     private String name;
 
-    // Contact Information
     @Column(name = "phone", nullable = false)
     private String phone;
 
@@ -60,7 +61,7 @@ public class Patient {
             @AttributeOverride(name = "latitude", column = @Column(name = "default_pickup_lat")),
             @AttributeOverride(name = "longitude", column = @Column(name = "default_pickup_lng"))
     })
-    private Location defaultPickupLocation;
+    private com.mediroute.dto.Location defaultPickupLocation;
 
     @Embedded
     @AttributeOverrides({
@@ -103,7 +104,6 @@ public class Patient {
     @Column(name = "medicaid_number")
     private String medicaidNumber;
 
-    // Additional Fields
     @Column(name = "date_of_birth")
     private LocalDate dateOfBirth;
 
@@ -112,7 +112,6 @@ public class Patient {
     @Builder.Default
     private Map<String, Object> specialNeeds = new HashMap<>();
 
-    // Status and Audit
     @Column(name = "is_active", columnDefinition = "BOOLEAN DEFAULT TRUE")
     @Builder.Default
     private Boolean isActive = true;
@@ -125,8 +124,18 @@ public class Patient {
     @Column(name = "updated_at")
     private LocalDateTime updatedAt;
 
-    // !! REMOVED LAZY RELATIONSHIPS TO PREVENT LazyInitializationException !!
-    // Use repository queries when you need ride information
+    // FIXED: Lazy loading relationship
+    @OneToMany(mappedBy = "patient", cascade = CascadeType.ALL, fetch = FetchType.LAZY)
+    @JsonIgnore  // PREVENT JSON serialization issues
+    @BatchSize(size = 10)  // Optimize batch loading
+    @Builder.Default
+    private List<Ride> rides = new ArrayList<>();
+
+    @OneToMany(mappedBy = "patient", cascade = CascadeType.ALL, fetch = FetchType.LAZY)
+    @JsonIgnore
+    @BatchSize(size = 10)
+    @Builder.Default
+    private List<PatientHistory> history = new ArrayList<>();
 
     // Business Methods
     public void addMedicalCondition(String condition) {
