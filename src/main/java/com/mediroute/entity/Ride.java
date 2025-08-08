@@ -1,5 +1,6 @@
 package com.mediroute.entity;
 
+import com.fasterxml.jackson.annotation.JsonBackReference;
 import com.mediroute.dto.Priority;
 import com.mediroute.dto.RideStatus;
 import com.mediroute.dto.RideType;
@@ -40,9 +41,9 @@ public class Ride {
     @Schema(description = "Unique ride identifier")
     private Long id;
 
-    // Patient and Driver Relationships
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "patient_id", nullable = false)
+    @JsonBackReference("patient-rides") // This completes the circular reference break
     @Schema(description = "Patient for this ride")
     private Patient patient;
 
@@ -55,6 +56,12 @@ public class Ride {
     @JoinColumn(name = "dropoff_driver_id")
     @Schema(description = "Driver for dropoff")
     private Driver dropoffDriver;
+
+    // Backward compatibility - keep this for existing code
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "driver_id")
+    @Schema(description = "Legacy driver field")
+    private Driver driver;
 
     // Location Information
     @Embedded
@@ -72,6 +79,13 @@ public class Ride {
             @AttributeOverride(name = "longitude", column = @Column(name = "dropoff_lng"))
     })
     private Location dropoffLocation;
+
+    // Legacy location fields for backward compatibility
+    @Column(name = "pickup_location")
+    private String pickupLocationString;
+
+    @Column(name = "dropoff_location")
+    private String dropoffLocationString;
 
     // Timing Information
     @Column(name = "pickup_time", nullable = false)
@@ -179,6 +193,7 @@ public class Ride {
 
     // Relationships
     @OneToMany(mappedBy = "ride", cascade = CascadeType.ALL, fetch = FetchType.LAZY)
+    @Builder.Default
     private List<RideAudit> auditHistory = new ArrayList<>();
 
     @OneToOne(mappedBy = "ride", cascade = CascadeType.ALL, fetch = FetchType.LAZY)
@@ -216,6 +231,31 @@ public class Ride {
         return pickupDriver != null && dropoffDriver != null;
     }
 
-    public double getPickupLng() {
+    // Legacy methods for backward compatibility
+    public Double getPickupLng() {
+        return pickupLocation != null ? pickupLocation.getLongitude() : null;
+    }
+
+    public Double getPickupLat() {
+        return pickupLocation != null ? pickupLocation.getLatitude() : null;
+    }
+
+    public Double getDropoffLng() {
+        return dropoffLocation != null ? dropoffLocation.getLongitude() : null;
+    }
+
+    public Double getDropoffLat() {
+        return dropoffLocation != null ? dropoffLocation.getLatitude() : null;
+    }
+
+    // Helper methods for location strings
+    public String getPickupLocationString() {
+        if (pickupLocationString != null) return pickupLocationString;
+        return pickupLocation != null ? pickupLocation.getAddress() : null;
+    }
+
+    public String getDropoffLocationString() {
+        if (dropoffLocationString != null) return dropoffLocationString;
+        return dropoffLocation != null ? dropoffLocation.getAddress() : null;
     }
 }

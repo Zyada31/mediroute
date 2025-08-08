@@ -1,4 +1,4 @@
-package com.medride.dto;
+package com.mediroute.dto;
 
 import java.util.ArrayList;
 import java.util.List;
