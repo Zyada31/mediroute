@@ -23,7 +23,7 @@ public class AssignmentSummaryService {
 
     public List<DriverRideSummary> getSummaryForDate(LocalDateTime dayStart, LocalDateTime dayEnd) {
         // Get all rides in the time range that are assigned
-        List<Ride> assignedRides = rideRepository.findByPickupTimeBetween(dayStart, dayEnd)
+        List<Ride> assignedRides = rideRepository.findByPickupTimeBetweenWithDriversAndPatient(dayStart, dayEnd)
                 .stream()
                 .filter(ride -> ride.getPickupDriver() != null || ride.getDropoffDriver() != null)
                 .toList();

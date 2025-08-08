@@ -20,6 +20,7 @@ import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.transaction.Transactional;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Sort;
@@ -147,7 +148,7 @@ public class UnifiedController {
         LocalDateTime start = date.atStartOfDay();
         LocalDateTime end = date.plusDays(1).atStartOfDay();
 
-        List<Ride> rides = rideRepository.findByPickupTimeBetween(start, end).stream()
+        List<Ride> rides = rideRepository.findByPickupTimeBetweenWithDriversAndPatient(start, end).stream()
                 .filter(ride -> ride.getPickupDriver() == null && ride.getDropoffDriver() == null)
                 .toList();
 
@@ -185,16 +186,14 @@ public class UnifiedController {
     // ========== Data Retrieval Endpoints ==========
 
     @Operation(summary = "Get rides by date", description = "Retrieve all rides for a specific date")
+    // Fix both endpoints to use proper JOIN FETCH queries
     @GetMapping("/rides/date/{date}")
-    public ResponseEntity<List<Ride>> getRidesByDate(
+    public ResponseEntity<List<RideDetailDTO>> getRidesByDate(
             @Parameter(description = "Date in YYYY-MM-DD format")
             @PathVariable @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date) {
 
         log.info("📋 Fetching rides for date: {}", date);
-        LocalDateTime start = date.atStartOfDay();
-        LocalDateTime end = date.plusDays(1).atStartOfDay();
-
-        List<Ride> rides = rideRepository.findByPickupTimeBetween(start, end);
+        List<RideDetailDTO> rides = rideService.findRidesByDateAsDTO(date);
         return ResponseEntity.ok(rides);
     }
 
