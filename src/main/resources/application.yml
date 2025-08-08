@@ -1,7 +1,94 @@
-# ============================================================================
-# MEDIROUTE APPLICATION CONFIGURATION
-# ============================================================================
+## ============================================================================
+## MEDIROUTE APPLICATION CONFIGURATION
+## ============================================================================
+#spring:
+#  application:
+#    name: mediroute
+#
+#  # Database Configuration
+#  datasource:
+#    url: jdbc:postgresql://localhost:5432/mediroute
+#    username: postgres
+#    password: postgres
+#    driver-class-name: org.postgresql.Driver
+#    hikari:
+#      maximum-pool-size: 20
+#      minimum-idle: 5
+#
+#  # JPA Configuration
+#  jpa:
+#    hibernate:
+#      ddl-auto: update  # Changed from create-drop for development
+#    properties:
+#      hibernate:
+#        dialect: org.hibernate.dialect.PostgreSQLDialect
+#        format_sql: true
+#        enable_lazy_load_no_trans: false  # Disable lazy loading outside transactions
+#
+#    show-sql: false
+#    open-in-view: false  # This prevents lazy loading issues
+#
+#  # Also add Jackson configuration for proper JSON serialization
+#  jackson:
+#    serialization:
+#      fail-on-empty-beans: false
+#    default-property-inclusion: non_null
+#  # Liquibase - DISABLED for now to avoid conflicts
+#  liquibase:
+#    enabled: false
+#
+#  # Jackson Configuration
+##  jackson:
+##    serialization:
+##      write-dates-as-timestamps: false
+##    time-zone: America/Denver
+#
+#  # File Upload Configuration
+#  servlet:
+#    multipart:
+#      max-file-size: 50MB
+#      max-request-size: 50MB
+#
+## External Services
+#google:
+#  api:
+#    key: AIzaSyAT-7uIyoB9yz5jrSRSlHhmMBWFEm8DUog
+#
+#osrm:
+#  base-url: http://localhost:5000
+#
+## MediRoute Specific
+#mediroute:
+#  depot-distance: 10
+#  mph-factor: 120
+#
+## Logging
+#logging:
+#  level:
+#    com.mediroute: DEBUG
+#    org.hibernate.SQL: WARN
+#    org.springframework.web: WARN
+#
+## Server
+#server:
+#  port: 8080
+#
+#---
+## Development Profile
+#spring:
+#  config:
+#    activate:
+#      on-profile: dev
+#  jpa:
+#    show-sql: true
+#    hibernate:
+#      ddl-auto: create-drop
+#
+#logging:
+#  level:
+#    com.mediroute: TRACE
 
+# Updated application.yml with critical fixes
 spring:
   application:
     name: mediroute
@@ -16,18 +103,19 @@ spring:
       maximum-pool-size: 20
       minimum-idle: 5
 
-  # JPA Configuration
+  # JPA Configuration - Let Hibernate handle schema
   jpa:
     hibernate:
-      ddl-auto: update  # Changed from create-drop for development
+      ddl-auto: update  # This will create/update schema automatically
     properties:
       hibernate:
         dialect: org.hibernate.dialect.PostgreSQLDialect
         format_sql: true
+        enable_lazy_load_no_trans: false
     show-sql: false
     open-in-view: false
 
-  # Liquibase - DISABLED for now to avoid conflicts
+  # DISABLE Liquibase for now - CRITICAL FIX
   liquibase:
     enabled: false
 
@@ -35,6 +123,8 @@ spring:
   jackson:
     serialization:
       write-dates-as-timestamps: false
+      fail-on-empty-beans: false
+    default-property-inclusion: non_null
     time-zone: America/Denver
 
   # File Upload Configuration
@@ -49,7 +139,7 @@ google:
     key:
 
 osrm:
-  base-url: http://localhost:5000
+  base-url: ${OSRM_BASE_URL:http://localhost:5000}
 
 # MediRoute Specific
 mediroute:
@@ -62,6 +152,7 @@ logging:
     com.mediroute: DEBUG
     org.hibernate.SQL: WARN
     org.springframework.web: WARN
+    org.springframework.transaction: DEBUG
 
 # Server
 server:

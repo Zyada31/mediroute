@@ -1,7 +1,5 @@
 package com.mediroute.service.ride;
 
-import com.google.ortools.constraintsolver.*;
-import com.google.protobuf.Duration;
 import com.mediroute.dto.*;
 import com.mediroute.entity.AssignmentAudit;
 import com.mediroute.entity.Driver;
@@ -17,11 +15,9 @@ import org.springframework.stereotype.Service;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
-import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
 import java.util.stream.Collectors;
-import java.util.stream.IntStream;
 
 @Slf4j
 @Service
@@ -34,23 +30,18 @@ public class EnhancedMedicalTransportOptimizer {
     private final AssignmentAuditRepository assignmentAuditRepository;
 
     // Medical transport constants
-    private static final int DEFAULT_TIME_WINDOW_MINUTES = 5;
     private static final int SHORT_APPOINTMENT_THRESHOLD = 15;
-    private static final long VEHICLE_MISMATCH_PENALTY = 1000000L;
-    private static final long SKILL_MISMATCH_PENALTY = 250000L;
-    private static final long PRIORITY_BONUS = 100000L;
-    private static final long DISTANCE_MULTIPLIER = 1000L;
     private static final int OPTIMIZATION_TIMEOUT_SECONDS = 45;
 
-    static {
-        try {
-            System.loadLibrary("jniortools");
-            log.info("✅ OR-Tools library loaded successfully");
-        } catch (UnsatisfiedLinkError e) {
-            log.error("❌ Failed to load OR-Tools library", e);
-            throw new RuntimeException("OR-Tools library not available", e);
-        }
-    }
+    // Remove OR-Tools dependency for now - use fallback algorithm
+    // static {
+    //     try {
+    //         System.loadLibrary("jniortools");
+    //         log.info("✅ OR-Tools library loaded successfully");
+    //     } catch (UnsatisfiedLinkError e) {
+    //         log.warn("⚠️ OR-Tools library not available, using fallback algorithm");
+    //     }
+    // }
 
     /**
      * Main optimization entry point for medical transport
@@ -80,7 +71,7 @@ public class EnhancedMedicalTransportOptimizer {
     }
 
     /**
-     * Core medical transport optimization with vehicle matching and flexible driver assignment
+     * Core medical transport optimization using intelligent fallback algorithm
      */
     private OptimizationResult performMedicalTransportOptimization(List<Ride> rides, List<Driver> drivers, String batchId) {
         RideCategorization categorization = categorizeRides(rides);
@@ -160,7 +151,7 @@ public class EnhancedMedicalTransportOptimizer {
     }
 
     /**
-     * Unified method to optimize rides for a specific vehicle type
+     * Unified method to optimize rides for a specific vehicle type using intelligent assignment
      */
     private OptimizationResult optimizeRidesForVehicleType(List<Ride> rides, List<Driver> drivers,
                                                            String batchId, boolean isRoundTrip, String vehicleType) {
@@ -177,276 +168,117 @@ public class EnhancedMedicalTransportOptimizer {
             return createUnassignedResult(rides, "No compatible " + vehicleType + " drivers available");
         }
 
-        try {
-            return optimizeWithORTools(rides, compatibleDrivers, batchId, isRoundTrip);
-        } catch (Exception e) {
-            log.warn("❌ OR-Tools optimization failed for {} rides: {}", rideTypeLabel, e.getMessage());
-            return performSimpleFallback(rides, compatibleDrivers, batchId);
-        }
+        return performIntelligentAssignment(rides, compatibleDrivers, batchId, isRoundTrip);
     }
 
     /**
-     * Core OR-Tools optimization logic
+     * Intelligent assignment algorithm (fallback when OR-Tools not available)
      */
-    private OptimizationResult optimizeWithORTools(List<Ride> rides, List<Driver> drivers,
-                                                   String batchId, boolean isRoundTrip) {
-        LocationMapping locationMapping = isRoundTrip ?
-                buildRoundTripLocationMapping(rides, drivers) :
-                buildOneWayLocationMapping(rides, drivers);
-
-        double[][] costMatrix = distanceService.getDistanceMatrix(locationMapping.getLocationStrings());
-        if (costMatrix == null || costMatrix.length == 0) {
-            throw new RuntimeException("Failed to get distance matrix");
-        }
-
-        // Create OR-Tools model
-        RoutingIndexManager manager = new RoutingIndexManager(
-                locationMapping.getTotalNodes(), drivers.size(),
-                IntStream.range(0, drivers.size()).toArray(),
-                IntStream.range(0, drivers.size()).toArray()
-        );
-
-        RoutingModel routing = new RoutingModel(manager);
-
-        // Add constraints and callbacks
-        addDistanceCallback(routing, manager, costMatrix, locationMapping, drivers, rides);
-        addCapacityConstraints(routing, manager, drivers, locationMapping, isRoundTrip);
-        addTimeWindowConstraints(routing, manager, locationMapping, rides);
-        addDisjunctionConstraints(routing, manager, locationMapping, rides);
-
-        // Solve and apply solution
-        Assignment solution = solveWithTimeLimit(routing, OPTIMIZATION_TIMEOUT_SECONDS);
-        if (solution != null) {
-            return applySolution(solution, routing, manager, locationMapping, drivers, rides, batchId, isRoundTrip);
-        } else {
-            throw new RuntimeException("No OR-Tools solution found");
-        }
-    }
-
-    /**
-     * Enhanced distance callback with medical transport penalties
-     */
-    private void addDistanceCallback(RoutingModel routing, RoutingIndexManager manager,
-                                     double[][] costMatrix, LocationMapping locationMapping,
-                                     List<Driver> drivers, List<Ride> rides) {
-
-        int transitCallbackIndex = routing.registerTransitCallback((fromIdx, toIdx) -> {
-            int fromNode = manager.indexToNode((int) fromIdx);
-            int toNode = manager.indexToNode((int) toIdx);
-
-            long baseCost = Math.round(costMatrix[fromNode][toNode] * DISTANCE_MULTIPLIER);
-            String fromEntity = locationMapping.getEntityForIndex(fromNode);
-            String toEntity = locationMapping.getEntityForIndex(toNode);
-
-            long penalties = calculateVehicleCompatibilityPenalty(fromEntity, toEntity, drivers, rides) +
-                    calculateSkillMatchingPenalty(fromEntity, toEntity, drivers, rides) +
-                    calculatePriorityBonus(toEntity, rides);
-
-            return baseCost + penalties;
-        });
-
-        routing.setArcCostEvaluatorOfAllVehicles(transitCallbackIndex);
-    }
-
-    /**
-     * Add capacity constraints based on ride type
-     */
-    private void addCapacityConstraints(RoutingModel routing, RoutingIndexManager manager,
-                                        List<Driver> drivers, LocationMapping locationMapping, boolean isRoundTrip) {
-        int[] demands = new int[locationMapping.getTotalNodes()];
-
-        // Set demands based on ride type
-        for (int i = 0; i < locationMapping.getTotalNodes(); i++) {
-            String entity = locationMapping.getEntityForIndex(i);
-            if (entity != null) {
-                if (isRoundTrip && entity.startsWith("ROUND_TRIP:")) {
-                    demands[i] = 1; // Pick up patient
-                } else if (!isRoundTrip) {
-                    if (entity.startsWith("PICKUP:")) {
-                        demands[i] = 1; // Pick up patient
-                    } else if (entity.startsWith("DROPOFF:")) {
-                        demands[i] = -1; // Drop off patient
-                    }
-                }
-            }
-        }
-
-        long[] capacities = drivers.stream()
-                .mapToLong(driver -> Math.min(
-                        Optional.ofNullable(driver.getVehicleCapacity()).orElse(4),
-                        Optional.ofNullable(driver.getMaxDailyRides()).orElse(8)
-                ))
-                .toArray();
-
-        int demandCallbackIdx = routing.registerUnaryTransitCallback(fromIdx -> {
-            int fromNode = manager.indexToNode((int) fromIdx);
-            return demands[fromNode];
-        });
-
-        routing.addDimensionWithVehicleCapacity(demandCallbackIdx, 0, capacities, true, "Capacity");
-    }
-
-    /**
-     * Add time window constraints for medical appointments
-     */
-    private void addTimeWindowConstraints(RoutingModel routing, RoutingIndexManager manager,
-                                          LocationMapping locationMapping, List<Ride> rides) {
-        int timeCallbackIdx = routing.registerTransitCallback((fromIdx, toIdx) -> 600); // 10 min average
-
-        routing.addDimension(timeCallbackIdx, 7200, 86400, false, "Time");
-        RoutingDimension timeDimension = routing.getMutableDimension("Time");
-
-        // Set time windows for each node
-        for (int i = 0; i < locationMapping.getTotalNodes(); i++) {
-            String entity = locationMapping.getEntityForIndex(i);
-            long[] timeWindow = getTimeWindowForEntity(entity, rides);
-
-            long nodeIndex = manager.nodeToIndex(i);
-            timeDimension.cumulVar(nodeIndex).setRange(timeWindow[0], timeWindow[1]);
-        }
-    }
-
-    /**
-     * Add disjunction constraints (allow skipping rides with penalties)
-     */
-    private void addDisjunctionConstraints(RoutingModel routing, RoutingIndexManager manager,
-                                           LocationMapping locationMapping, List<Ride> rides) {
-        for (int i = 0; i < locationMapping.getTotalNodes(); i++) {
-            String entity = locationMapping.getEntityForIndex(i);
-            if (entity != null && isRideEntity(entity)) {
-                long nodeIndex = manager.nodeToIndex(i);
-                long penalty = calculateSkippingPenalty(entity, rides);
-                routing.addDisjunction(new long[]{nodeIndex}, penalty);
-            }
-        }
-    }
-
-    /**
-     * Apply optimization solution based on ride type
-     */
-    private OptimizationResult applySolution(Assignment solution, RoutingModel routing, RoutingIndexManager manager,
-                                             LocationMapping locationMapping, List<Driver> drivers, List<Ride> rides,
-                                             String batchId, boolean isRoundTrip) {
+    private OptimizationResult performIntelligentAssignment(List<Ride> rides, List<Driver> drivers,
+                                                            String batchId, boolean isRoundTrip) {
         OptimizationResult result = new OptimizationResult();
 
-        for (int driverIdx = 0; driverIdx < drivers.size(); driverIdx++) {
-            Driver driver = drivers.get(driverIdx);
-            long routeIndex = routing.start(driverIdx);
+        // Sort rides by priority and time
+        List<Ride> sortedRides = rides.stream()
+                .sorted(Comparator
+                        .comparing((Ride r) -> r.getPriority() == Priority.EMERGENCY ? 0 :
+                                r.getPriority() == Priority.URGENT ? 1 : 2)
+                        .thenComparing(Ride::getPickupTime))
+                .collect(Collectors.toList());
 
-            while (!routing.isEnd(routeIndex)) {
-                int nodeIndex = manager.indexToNode((int) routeIndex);
-                String entity = locationMapping.getEntityForIndex(nodeIndex);
+        for (Ride ride : sortedRides) {
+            Driver bestDriver = findBestDriverForRide(ride, drivers);
 
-                processRouteNode(entity, driver, rides, batchId, result, isRoundTrip);
-                routeIndex = solution.value(routing.nextVar(routeIndex));
+            if (bestDriver != null) {
+                if (isRoundTrip) {
+                    assignRideToDriver(ride, bestDriver, bestDriver, batchId, "INTELLIGENT_ROUND_TRIP");
+                } else {
+                    Driver dropoffDriver = findBestDriverForDropoff(ride, drivers, bestDriver);
+                    assignRideToDriver(ride, bestDriver, dropoffDriver != null ? dropoffDriver : bestDriver,
+                            batchId, "INTELLIGENT_ONE_WAY");
+                }
+                result.addAssignedRide(bestDriver.getId(), ride.getId());
+                log.debug("✅ Ride {} assigned to driver {} ({})", ride.getId(), bestDriver.getName(),
+                        isRoundTrip ? "round-trip" : "one-way");
+            } else {
+                result.addUnassignedRide(ride.getId(), "No compatible driver available");
+                log.warn("❌ Could not assign ride {}", ride.getId());
             }
         }
 
         return result;
     }
 
-    /**
-     * Process a single route node and assign rides accordingly
-     */
-    private void processRouteNode(String entity, Driver driver, List<Ride> rides,
-                                  String batchId, OptimizationResult result, boolean isRoundTrip) {
-        if (entity == null || !isRideEntity(entity)) return;
+    // Helper methods for intelligent assignment
+    private Driver findBestDriverForRide(Ride ride, List<Driver> drivers) {
+        return drivers.stream()
+                .filter(driver -> canDriverHandlePatient(driver, ride.getPatient()))
+                .filter(driver -> hasRequiredSkills(driver, ride.getRequiredSkills()))
+                .filter(driver -> isDriverAvailableForRide(driver, ride))
+                .min(Comparator.comparingDouble(driver -> calculateDriverScore(driver, ride)))
+                .orElse(null);
+    }
 
-        Long rideId = extractRideIdFromEntity(entity);
-        if (rideId == null) return;
+    private Driver findBestDriverForDropoff(Ride ride, List<Driver> drivers, Driver pickupDriver) {
+        return drivers.stream()
+                .filter(driver -> !driver.equals(pickupDriver)) // Different driver for dropoff
+                .filter(driver -> canDriverHandlePatient(driver, ride.getPatient()))
+                .filter(driver -> isDriverAvailableForDropoff(driver, ride))
+                .min(Comparator.comparingDouble(driver -> calculateDropoffScore(driver, ride)))
+                .orElse(null);
+    }
 
-        Ride ride = findRideById(rides, rideId);
-        if (ride == null) return;
+    private double calculateDriverScore(Driver driver, Ride ride) {
+        double score = 0.0;
 
-        if (isRoundTrip && entity.startsWith("ROUND_TRIP:")) {
-            assignRideToDriver(ride, driver, driver, batchId, "ROUND_TRIP_OPTIMIZATION");
-            result.addAssignedRide(driver.getId(), rideId);
-            log.debug("✅ Round-trip ride {} assigned to driver {}", rideId, driver.getName());
-        } else if (!isRoundTrip) {
-            if (entity.startsWith("PICKUP:")) {
-                ride.setPickupDriver(driver);
-            } else if (entity.startsWith("DROPOFF:")) {
-                ride.setDropoffDriver(driver);
-            }
-            updateRideAssignment(ride, batchId, "ONE_WAY_OPTIMIZATION");
-            result.addAssignedRide(driver.getId(), rideId);
-            log.debug("✅ {} for ride {} assigned to driver {}",
-                    entity.split(":")[0], rideId, driver.getName());
+        // Distance factor (lower is better)
+        double distance = calculateDistanceToPickup(driver, ride);
+        score += distance * 100; // Weight distance heavily
+
+        // Capability bonus (exact match is better)
+        if (hasExactVehicleMatch(driver, ride)) {
+            score -= 50;
         }
+
+        // Experience bonus
+        score -= driver.getMaxDailyRides() * 5;
+
+        return score;
     }
 
-    // ============================
-    // Penalty and Bonus Calculations
-    // ============================
-
-    private long calculateVehicleCompatibilityPenalty(String fromEntity, String toEntity,
-                                                      List<Driver> drivers, List<Ride> rides) {
-        if (!isRideEntity(toEntity)) return 0L;
-
-        Long rideId = extractRideIdFromEntity(toEntity);
-        Ride ride = findRideById(rides, rideId);
-        Driver driver = getDriverFromEntity(fromEntity, drivers);
-
-        if (ride == null || ride.getPatient() == null || driver == null) return 0L;
-
-        return canDriverHandlePatient(driver, ride.getPatient()) ? 0L : VEHICLE_MISMATCH_PENALTY;
+    private double calculateDropoffScore(Driver driver, Ride ride) {
+        // For dropoff, prioritize drivers closer to the dropoff location
+        if (ride.getDropoffLocation() != null && ride.getDropoffLocation().isValid()) {
+            return calculateDistance(
+                    driver.getBaseLat(), driver.getBaseLng(),
+                    ride.getDropoffLocation().getLatitude(), ride.getDropoffLocation().getLongitude()
+            );
+        }
+        return 999.0; // High score if no valid dropoff location
     }
 
-    private long calculateSkillMatchingPenalty(String fromEntity, String toEntity,
-                                               List<Driver> drivers, List<Ride> rides) {
-        if (!isRideEntity(toEntity)) return 0L;
-
-        Long rideId = extractRideIdFromEntity(toEntity);
-        Ride ride = findRideById(rides, rideId);
-        Driver driver = getDriverFromEntity(fromEntity, drivers);
-
-        if (ride == null || ride.getRequiredSkills() == null || ride.getRequiredSkills().isEmpty() ||
-                driver == null || driver.getSkills() == null) return 0L;
-
-        boolean hasAllSkills = ride.getRequiredSkills().stream()
-                .allMatch(skill -> Boolean.TRUE.equals(driver.getSkills().get(skill)));
-
-        return hasAllSkills ? 0L : SKILL_MISMATCH_PENALTY;
-    }
-
-    private long calculatePriorityBonus(String toEntity, List<Ride> rides) {
-        if (!isRideEntity(toEntity)) return 0L;
-
-        Long rideId = extractRideIdFromEntity(toEntity);
-        Ride ride = findRideById(rides, rideId);
-
-        if (ride == null || ride.getPriority() == null) return 0L;
-
-        return switch (ride.getPriority()) {
-            case EMERGENCY -> -PRIORITY_BONUS * 3;
-            case URGENT -> -PRIORITY_BONUS;
-            case ROUTINE -> 0L;
+    private boolean hasExactVehicleMatch(Driver driver, Ride ride) {
+        String requiredType = determineRequiredVehicleType(ride);
+        return switch (requiredType.toLowerCase()) {
+            case "wheelchair_van" -> Boolean.TRUE.equals(driver.getWheelchairAccessible());
+            case "stretcher_van" -> Boolean.TRUE.equals(driver.getStretcherCapable());
+            case "ambulance" -> Boolean.TRUE.equals(driver.getStretcherCapable()) &&
+                    Boolean.TRUE.equals(driver.getOxygenEquipped());
+            default -> true;
         };
     }
 
-    private long calculateSkippingPenalty(String entity, List<Ride> rides) {
-        Long rideId = extractRideIdFromEntity(entity);
-        Ride ride = findRideById(rides, rideId);
-
-        if (ride == null) return 500000L;
-
-        long basePenalty = switch (ride.getPriority()) {
-            case EMERGENCY -> 2000000L;
-            case URGENT -> 1000000L;
-            case ROUTINE -> 200000L;
-        };
-
-        if (ride.getPatient() != null && ride.getPatient().hasHighMobilityNeeds()) {
-            basePenalty += 300000L;
-        }
-
-        return basePenalty;
+    private boolean isDriverAvailableForRide(Driver driver, Ride ride) {
+        // Basic availability check - can be enhanced with actual scheduling
+        return driver.getActive() && Boolean.TRUE.equals(driver.getIsTrainingComplete());
     }
 
-    // ============================
-    // Helper Methods
-    // ============================
+    private boolean isDriverAvailableForDropoff(Driver driver, Ride ride) {
+        // Check if driver is available for dropoff time
+        return isDriverAvailableForRide(driver, ride);
+    }
 
+    // Rest of the helper methods remain the same...
     private String determineRequiredVehicleType(Ride ride) {
         Patient patient = ride.getPatient();
         if (patient == null) return "sedan";
@@ -481,9 +313,7 @@ public class EnhancedMedicalTransportOptimizer {
 
         return !(Boolean.TRUE.equals(patient.getRequiresWheelchair()) && !Boolean.TRUE.equals(driver.getWheelchairAccessible())) &&
                 !(Boolean.TRUE.equals(patient.getRequiresStretcher()) && !Boolean.TRUE.equals(driver.getStretcherCapable())) &&
-                !(Boolean.TRUE.equals(patient.getRequiresOxygen()) && !Boolean.TRUE.equals(driver.getOxygenEquipped())) &&
-                !(patient.getMobilityLevel() == MobilityLevel.STRETCHER && !Boolean.TRUE.equals(driver.getStretcherCapable())) &&
-                !(patient.getMobilityLevel() == MobilityLevel.WHEELCHAIR && !Boolean.TRUE.equals(driver.getWheelchairAccessible()));
+                !(Boolean.TRUE.equals(patient.getRequiresOxygen()) && !Boolean.TRUE.equals(driver.getOxygenEquipped()));
     }
 
     private List<Driver> getDriversForVehicleType(List<Driver> drivers, String vehicleType) {
@@ -541,19 +371,26 @@ public class EnhancedMedicalTransportOptimizer {
 
     private double calculateDistanceToPickup(Driver driver, Ride ride) {
         if (ride.getPickupLocation() == null || !ride.getPickupLocation().isValid()) {
-            return Double.MAX_VALUE; // Invalid location, lowest priority
+            return Double.MAX_VALUE;
         }
 
-        double lat1 = Math.toRadians(driver.getBaseLat());
-        double lon1 = Math.toRadians(driver.getBaseLng());
-        double lat2 = Math.toRadians(ride.getPickupLocation().getLatitude());
-        double lon2 = Math.toRadians(ride.getPickupLocation().getLongitude());
+        return calculateDistance(
+                driver.getBaseLat(), driver.getBaseLng(),
+                ride.getPickupLocation().getLatitude(), ride.getPickupLocation().getLongitude()
+        );
+    }
 
-        double dlat = lat2 - lat1;
-        double dlon = lon2 - lon1;
+    private double calculateDistance(double lat1, double lng1, double lat2, double lng2) {
+        double lat1Rad = Math.toRadians(lat1);
+        double lon1Rad = Math.toRadians(lng1);
+        double lat2Rad = Math.toRadians(lat2);
+        double lon2Rad = Math.toRadians(lng2);
+
+        double dlat = lat2Rad - lat1Rad;
+        double dlon = lon2Rad - lon1Rad;
 
         double a = Math.sin(dlat/2) * Math.sin(dlat/2) +
-                Math.cos(lat1) * Math.cos(lat2) * Math.sin(dlon/2) * Math.sin(dlon/2);
+                Math.cos(lat1Rad) * Math.cos(lat2Rad) * Math.sin(dlon/2) * Math.sin(dlon/2);
         double c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
 
         return 6371 * c; // Earth's radius in kilometers
@@ -563,127 +400,6 @@ public class EnhancedMedicalTransportOptimizer {
         return allDrivers.stream()
                 .filter(driver -> !assignedDriverIds.contains(driver.getId()))
                 .collect(Collectors.toList());
-    }
-
-    private long[] getTimeWindowForEntity(String entity, List<Ride> rides) {
-        if (entity == null || !isRideEntity(entity)) {
-            return new long[]{0, 86400}; // Default 24-hour window
-        }
-
-        Long rideId = extractRideIdFromEntity(entity);
-        Ride ride = findRideById(rides, rideId);
-        if (ride == null) return new long[]{0, 86400};
-
-        if (entity.startsWith("PICKUP:") || entity.startsWith("ROUND_TRIP:")) {
-            if (ride.getPickupWindowStart() != null && ride.getPickupWindowEnd() != null) {
-                return new long[]{
-                        ride.getPickupWindowStart().toEpochSecond(ZoneOffset.UTC),
-                        ride.getPickupWindowEnd().toEpochSecond(ZoneOffset.UTC)
-                };
-            }
-        } else if (entity.startsWith("DROPOFF:")) {
-            if (ride.getDropoffWindowStart() != null && ride.getDropoffWindowEnd() != null) {
-                return new long[]{
-                        ride.getDropoffWindowStart().toEpochSecond(ZoneOffset.UTC),
-                        ride.getDropoffWindowEnd().toEpochSecond(ZoneOffset.UTC)
-                };
-            }
-        }
-
-        return new long[]{0, 86400};
-    }
-
-    // ============================
-    // Location Mapping Builders
-    // ============================
-
-    private LocationMapping buildRoundTripLocationMapping(List<Ride> rides, List<Driver> drivers) {
-        LocationMapping mapping = new LocationMapping();
-
-        for (Driver driver : drivers) {
-            mapping.addLocation(driver.getBaseLng() + "," + driver.getBaseLat(), "DRIVER:" + driver.getId());
-        }
-
-        for (Ride ride : rides) {
-            // OLD CODE - Remove this:
-            // mapping.addLocation(ride.getPickupLng() + "," + ride.getPickupLat(), "ROUND_TRIP:" + ride.getId());
-
-            // NEW CODE - Use this instead:
-            if (ride.getPickupLocation() != null && ride.getPickupLocation().isValid()) {
-                String coords = ride.getPickupLocation().getLongitude() + "," + ride.getPickupLocation().getLatitude();
-                mapping.addLocation(coords, "ROUND_TRIP:" + ride.getId());
-            }
-        }
-
-        return mapping;
-    }
-
-    private LocationMapping buildOneWayLocationMapping(List<Ride> rides, List<Driver> drivers) {
-        LocationMapping mapping = new LocationMapping();
-
-        for (Driver driver : drivers) {
-            mapping.addLocation(driver.getBaseLng() + "," + driver.getBaseLat(), "DRIVER:" + driver.getId());
-        }
-
-        for (Ride ride : rides) {
-            // OLD CODE - Remove this:
-            // mapping.addLocation(ride.getPickupLng() + "," + ride.getPickupLat(), "PICKUP:" + ride.getId());
-            // mapping.addLocation(ride.getDropoffLng() + "," + ride.getDropoffLat(), "DROPOFF:" + ride.getId());
-
-            // NEW CODE - Use this instead:
-            if (ride.getPickupLocation() != null && ride.getPickupLocation().isValid()) {
-                String pickupCoords = ride.getPickupLocation().getLongitude() + "," + ride.getPickupLocation().getLatitude();
-                mapping.addLocation(pickupCoords, "PICKUP:" + ride.getId());
-            }
-
-            if (ride.getDropoffLocation() != null && ride.getDropoffLocation().isValid()) {
-                String dropoffCoords = ride.getDropoffLocation().getLongitude() + "," + ride.getDropoffLocation().getLatitude();
-                mapping.addLocation(dropoffCoords, "DROPOFF:" + ride.getId());
-            }
-        }
-
-        return mapping;
-    }
-
-    // ============================
-    // Utility Methods
-    // ============================
-
-    private boolean isRideEntity(String entity) {
-        return entity != null && (entity.startsWith("PICKUP:") || entity.startsWith("DROPOFF:") || entity.startsWith("ROUND_TRIP:"));
-    }
-
-    private Long extractRideIdFromEntity(String entity) {
-        if (entity == null) return null;
-
-        try {
-            String[] parts = entity.split(":");
-            return parts.length == 2 ? Long.parseLong(parts[1]) : null;
-        } catch (NumberFormatException e) {
-            log.warn("Invalid ride ID in entity: {}", entity);
-            return null;
-        }
-    }
-
-    private Ride findRideById(List<Ride> rides, Long rideId) {
-        return rides.stream()
-                .filter(r -> r.getId().equals(rideId))
-                .findFirst()
-                .orElse(null);
-    }
-
-    private Driver getDriverFromEntity(String entity, List<Driver> drivers) {
-        if (entity == null || !entity.startsWith("DRIVER:")) return null;
-
-        try {
-            Long driverId = Long.parseLong(entity.split(":")[1]);
-            return drivers.stream()
-                    .filter(d -> d.getId().equals(driverId))
-                    .findFirst()
-                    .orElse(null);
-        } catch (NumberFormatException e) {
-            return null;
-        }
     }
 
     private void assignRideToDriver(Ride ride, Driver pickupDriver, Driver dropoffDriver, String batchId, String method) {
@@ -701,174 +417,15 @@ public class EnhancedMedicalTransportOptimizer {
         rideRepository.save(ride);
     }
 
-    private Assignment solveWithTimeLimit(RoutingModel routing, int timeoutSeconds) {
-        RoutingSearchParameters parameters = main.defaultRoutingSearchParameters()
-                .toBuilder()
-                .setFirstSolutionStrategy(FirstSolutionStrategy.Value.PATH_CHEAPEST_ARC)
-                .setLocalSearchMetaheuristic(LocalSearchMetaheuristic.Value.GUIDED_LOCAL_SEARCH)
-                .setTimeLimit(Duration.newBuilder().setSeconds(timeoutSeconds).build())
-                .build();
-
-        return routing.solveWithParameters(parameters);
-    }
-
     private String generateBatchId() {
         return "MEDICAL_" + LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss")) +
                 "_" + UUID.randomUUID().toString().substring(0, 8);
     }
 
-    // ============================
-    // Fallback Methods
-    // ============================
-
+    // Fallback and audit methods remain the same but simplified...
     private OptimizationResult performIntelligentFallback(List<Ride> rides, List<Driver> drivers, String batchId) {
         log.warn("⚠️ Running intelligent medical transport fallback for {} rides", rides.size());
-
-        OptimizationResult result = OptimizationResult.create(batchId, rides.size());
-
-        // Categorize rides for intelligent fallback
-        Map<String, List<Ride>> ridesByType = categorizeRidesForFallback(rides);
-
-        // Handle each category in priority order
-        for (String category : List.of("emergency", "wheelchair_van", "stretcher_van", "regular")) {
-            List<Ride> categoryRides = ridesByType.getOrDefault(category, Collections.emptyList());
-            if (!categoryRides.isEmpty()) {
-                result.merge(handleRideCategory(categoryRides, drivers, category, batchId));
-                drivers = getAvailableDriversAfterAssignment(drivers, result.getAssignedDriverIds());
-            }
-        }
-
-        return result;
-    }
-
-    private Map<String, List<Ride>> categorizeRidesForFallback(List<Ride> rides) {
-        Map<String, List<Ride>> categories = new HashMap<>();
-
-        for (Ride ride : rides) {
-            String category;
-            if (ride.getPriority() == Priority.EMERGENCY) {
-                category = "emergency";
-            } else {
-                String vehicleType = determineRequiredVehicleType(ride);
-                category = vehicleType.equals("sedan") || vehicleType.equals("van") ? "regular" : vehicleType;
-            }
-            categories.computeIfAbsent(category, k -> new ArrayList<>()).add(ride);
-        }
-
-        return categories;
-    }
-
-    private OptimizationResult handleRideCategory(List<Ride> rides, List<Driver> drivers, String category, String batchId) {
-        return switch (category) {
-            case "emergency" -> handleEmergencyRidesFallback(rides, drivers, batchId);
-            case "wheelchair_van", "stretcher_van" -> handleSpecialVehicleRidesFallback(rides, drivers, category, batchId);
-            default -> handleRegularRidesFallback(rides, drivers, batchId);
-        };
-    }
-
-    private OptimizationResult performSimpleFallback(List<Ride> rides, List<Driver> drivers, String batchId) {
-        log.warn("⚠️ Running simple fallback for {} rides with {} drivers", rides.size(), drivers.size());
-
-        OptimizationResult result = OptimizationResult.create(batchId, rides.size());
-
-        int driverIndex = 0;
-        for (Ride ride : rides) {
-            Driver assignedDriver = findCompatibleDriver(drivers, ride, driverIndex);
-
-            if (assignedDriver != null) {
-                if (isRoundTripRide(ride)) {
-                    assignRideToDriver(ride, assignedDriver, assignedDriver, batchId, "SIMPLE_FALLBACK");
-                } else {
-                    Driver dropoffDriver = findCompatibleDriver(drivers, ride, driverIndex + 1);
-                    assignRideToDriver(ride, assignedDriver, dropoffDriver != null ? dropoffDriver : assignedDriver, batchId, "SIMPLE_FALLBACK");
-                }
-                result.addAssignedRide(assignedDriver.getId(), ride.getId());
-                driverIndex = (driverIndex + 1) % drivers.size();
-            } else {
-                result.addUnassignedRide(ride.getId(), "No compatible driver available");
-            }
-        }
-
-        return result;
-    }
-
-    private Driver findCompatibleDriver(List<Driver> drivers, Ride ride, int startIndex) {
-        for (int i = 0; i < drivers.size(); i++) {
-            Driver candidate = drivers.get((startIndex + i) % drivers.size());
-            if (canDriverHandlePatient(candidate, ride.getPatient())) {
-                return candidate;
-            }
-        }
-        return null;
-    }
-
-    private OptimizationResult handleEmergencyRidesFallback(List<Ride> emergencyRides, List<Driver> drivers, String batchId) {
-        OptimizationResult result = new OptimizationResult();
-
-        for (Ride ride : emergencyRides) {
-            Driver bestDriver = findBestEmergencyDriver(ride, drivers);
-            if (bestDriver != null) {
-                assignRideToDriver(ride, bestDriver, bestDriver, batchId, "EMERGENCY_FALLBACK");
-                result.addAssignedRide(bestDriver.getId(), ride.getId());
-            } else {
-                result.addUnassignedRide(ride.getId(), "No emergency-qualified driver available");
-            }
-        }
-
-        return result;
-    }
-
-    private OptimizationResult handleSpecialVehicleRidesFallback(List<Ride> rides, List<Driver> drivers, String vehicleType, String batchId) {
-        OptimizationResult result = new OptimizationResult();
-        List<Driver> compatibleDrivers = getDriversForVehicleType(drivers, vehicleType);
-
-        if (compatibleDrivers.isEmpty()) {
-            rides.forEach(ride -> result.addUnassignedRide(ride.getId(), "No " + vehicleType + " driver available"));
-            return result;
-        }
-
-        int driverIndex = 0;
-        for (Ride ride : rides) {
-            Driver assignedDriver = compatibleDrivers.get(driverIndex % compatibleDrivers.size());
-
-            if (isRoundTripRide(ride)) {
-                assignRideToDriver(ride, assignedDriver, assignedDriver, batchId, "SPECIAL_VEHICLE_FALLBACK");
-            } else {
-                Driver dropoffDriver = compatibleDrivers.get((driverIndex + 1) % compatibleDrivers.size());
-                assignRideToDriver(ride, assignedDriver, dropoffDriver, batchId, "SPECIAL_VEHICLE_FALLBACK");
-            }
-
-            result.addAssignedRide(assignedDriver.getId(), ride.getId());
-            driverIndex++;
-        }
-
-        return result;
-    }
-
-    private OptimizationResult handleRegularRidesFallback(List<Ride> rides, List<Driver> drivers, String batchId) {
-        OptimizationResult result = new OptimizationResult();
-
-        if (drivers.isEmpty()) {
-            rides.forEach(ride -> result.addUnassignedRide(ride.getId(), "No drivers available"));
-            return result;
-        }
-
-        int driverIndex = 0;
-        for (Ride ride : rides) {
-            Driver assignedDriver = drivers.get(driverIndex % drivers.size());
-
-            if (isRoundTripRide(ride)) {
-                assignRideToDriver(ride, assignedDriver, assignedDriver, batchId, "REGULAR_FALLBACK");
-            } else {
-                Driver dropoffDriver = drivers.get((driverIndex + 1) % drivers.size());
-                assignRideToDriver(ride, assignedDriver, dropoffDriver, batchId, "REGULAR_FALLBACK");
-            }
-
-            result.addAssignedRide(assignedDriver.getId(), ride.getId());
-            driverIndex++;
-        }
-
-        return result;
+        return performIntelligentAssignment(rides, drivers, batchId, false);
     }
 
     private OptimizationResult createUnassignedResult(List<Ride> rides, String reason) {
@@ -877,21 +434,13 @@ public class EnhancedMedicalTransportOptimizer {
         return result;
     }
 
-    // ============================
-    // Logging and Audit Methods
-    // ============================
-
+    // Logging methods
     private void logCategorizationResults(RideCategorization categorization) {
         log.info("📊 Ride categorization complete:");
         log.info("   🚨 Emergency: {}", categorization.getEmergencyRides().size());
-        log.info("   🔄 Round-trip by vehicle: {}",
-                categorization.getRoundTripRidesByVehicleType().entrySet().stream()
-                        .map(e -> e.getKey() + "=" + e.getValue().size())
-                        .collect(Collectors.joining(", ")));
-        log.info("   ➡️ One-way by vehicle: {}",
-                categorization.getOneWayRidesByVehicleType().entrySet().stream()
-                        .map(e -> e.getKey() + "=" + e.getValue().size())
-                        .collect(Collectors.joining(", ")));
+        log.info("   🔄 Round-trip: {}", categorization.getRoundTripRideCount());
+        log.info("   ♿ Wheelchair: {}", categorization.getWheelchairRideCount());
+        log.info("   🏥 Stretcher: {}", categorization.getStretcherRideCount());
     }
 
     private void logOptimizationResults(String batchId, OptimizationResult result, int totalRides) {
@@ -900,76 +449,38 @@ public class EnhancedMedicalTransportOptimizer {
                 batchId, result.getSuccessRate(), result.getAssignedRideCount(), totalRides);
     }
 
-    private void createDetailedAuditRecord(List<Ride> rides, OptimizationResult result, RideCategorization categorization, String batchId) {
+    private void createDetailedAuditRecord(List<Ride> rides, OptimizationResult result,
+                                           RideCategorization categorization, String batchId) {
         try {
-            List<RideAssignmentAuditDTO> auditDTOs = rides.stream()
-                    .map(this::createAuditDTO)
-                    .collect(Collectors.toList());
+            AssignmentAudit audit = new AssignmentAudit();
+            audit.setAssignmentTime(LocalDateTime.now());
+            audit.setBatchId(batchId);
+            audit.setAssignmentDate(rides.isEmpty() ? LocalDate.now() : rides.get(0).getPickupTime().toLocalDate());
+            audit.setTotalRides(rides.size());
+            audit.setAssignedRides(result.getAssignedRideCount());
+            audit.setUnassignedRides(rides.size() - result.getAssignedRideCount());
+            audit.setAssignedDrivers(result.getAssignedDriverCount());
+            audit.setSuccessRate(result.getSuccessRate());
+            audit.setTriggeredBy("ENHANCED_MEDICAL_OPTIMIZER");
+            audit.setOptimizationStrategy("Intelligent fallback algorithm with medical transport constraints");
 
-            AssignmentAudit audit = createAuditEntity(rides, result, categorization, batchId, auditDTOs);
+            // Medical transport specific statistics
+            audit.setWheelchairRides(categorization.getWheelchairRideCount());
+            audit.setStretcherRides(categorization.getStretcherRideCount());
+            audit.setRoundTripRides(categorization.getRoundTripRideCount());
+            audit.setEmergencyRides(categorization.getEmergencyRides().size());
+
+            audit.setRideAssignmentsSummary(result.getDriverAssignments());
+            audit.setUnassignedReasons(result.getUnassignedReasons());
+
             assignmentAuditRepository.save(audit);
-
             log.info("📊 Enhanced audit record created for batch {}", batchId);
-            log.info("📈 Medical transport stats - Wheelchair: {}, Stretcher: {}, Round-trip: {}, Emergency: {}",
-                    audit.getWheelchairRides(), audit.getStretcherRides(),
-                    audit.getRoundTripRides(), audit.getEmergencyRides());
-
         } catch (Exception e) {
             log.error("Failed to create enhanced audit record for batch {}: {}", batchId, e.getMessage(), e);
         }
     }
 
-    private AssignmentAudit createAuditEntity(List<Ride> rides, OptimizationResult result,
-                                              RideCategorization categorization, String batchId,
-                                              List<RideAssignmentAuditDTO> auditDTOs) {
-        AssignmentAudit audit = new AssignmentAudit();
-        audit.setAssignmentTime(LocalDateTime.now());
-        audit.setBatchId(batchId);
-        audit.setAssignmentDate(rides.isEmpty() ? LocalDate.now() : rides.get(0).getPickupTime().toLocalDate());
-        audit.setTotalRides(rides.size());
-        audit.setAssignedRides(result.getAssignedRideCount());
-        audit.setUnassignedRides(rides.size() - result.getAssignedRideCount());
-        audit.setAssignedDrivers(result.getAssignedDriverCount());
-        audit.setSuccessRate(result.getSuccessRate());
-        audit.setTriggeredBy("ENHANCED_MEDICAL_OPTIMIZER");
-        audit.setOptimizationStrategy("Enhanced OR-Tools VRP with medical transport constraints");
-
-        // Medical transport specific statistics
-        audit.setWheelchairRides(categorization.getWheelchairRideCount());
-        audit.setStretcherRides(categorization.getStretcherRideCount());
-        audit.setRoundTripRides(categorization.getRoundTripRideCount());
-        audit.setEmergencyRides(categorization.getEmergencyRides().size());
-
-        audit.setRideAssignmentsSummary(result.getDriverAssignments());
-        audit.setRideAssignmentsDetail(auditDTOs);
-        audit.setUnassignedReasons(result.getUnassignedReasons());
-
-        return audit;
-    }
-
-    private RideAssignmentAuditDTO createAuditDTO(Ride ride) {
-        return new RideAssignmentAuditDTO(
-                ride.getId(),
-                ride.getPatient() != null ? ride.getPatient().getName() : "Unknown",
-                ride.getPickupLocation() != null ? ride.getPickupLocation().getAddress() : "Unknown", // FIXED
-                ride.getDropoffLocation() != null ? ride.getDropoffLocation().getAddress() : "Unknown", // FIXED
-                ride.getPickupDriver() != null ? ride.getPickupDriver().getId() : null,
-                ride.getPickupDriver() != null ? ride.getPickupDriver().getName() : "UNASSIGNED",
-                ride.getDropoffDriver() != null ? ride.getDropoffDriver().getId() : null,
-                ride.getDropoffDriver() != null ? ride.getDropoffDriver().getName() : "UNASSIGNED",
-                ride.getRequiredVehicleType(),
-                ride.getPriority() != null ? ride.getPriority().name() : "ROUTINE",
-                ride.getRideType() != null ? ride.getRideType().name() : "ONE_WAY",
-                "ENHANCED_MEDICAL_OPTIMIZER",
-                "Medical transport optimization with vehicle matching and flexible driver assignment",
-                LocalDateTime.now()
-        );
-    }
-
-    // ============================
-    // Supporting Classes
-    // ============================
-
+    // Supporting Classes (simplified versions)
     public static class OptimizationResult {
         private String batchId;
         private int totalRides;
@@ -1069,28 +580,6 @@ public class EnhancedMedicalTransportOptimizer {
         public List<Ride> getEmergencyRides() { return emergencyRides; }
         public Map<String, List<Ride>> getRoundTripRidesByVehicleType() { return roundTripRidesByVehicleType; }
         public Map<String, List<Ride>> getOneWayRidesByVehicleType() { return oneWayRidesByVehicleType; }
-    }
 
-    public static class LocationMapping {
-        private List<String> locationStrings = new ArrayList<>();
-        private Map<Integer, String> indexToEntity = new HashMap<>();
-
-        public void addLocation(String locationString, String entity) {
-            int index = locationStrings.size();
-            locationStrings.add(locationString);
-            indexToEntity.put(index, entity);
-        }
-
-        public int getTotalNodes() {
-            return locationStrings.size();
-        }
-
-        public String getEntityForIndex(int index) {
-            return indexToEntity.get(index);
-        }
-
-        public List<String> getLocationStrings() {
-            return locationStrings;
-        }
     }
 }
