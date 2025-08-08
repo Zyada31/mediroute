@@ -37,6 +37,8 @@ public class GeocodingService {
 
         try {
             String encoded = URLEncoder.encode(address, StandardCharsets.UTF_8);
+            log.info("Google Maps API key: {}", apiKey);
+
             String url = "https://maps.googleapis.com/maps/api/geocode/json?address=" + encoded + "&key=" + apiKey;
             log.info("Google Maps API for address: {}", url);
 

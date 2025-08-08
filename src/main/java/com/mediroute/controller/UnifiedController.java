@@ -193,7 +193,7 @@ public class UnifiedController {
             @PathVariable @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date) {
 
         log.info("📋 Fetching rides for date: {}", date);
-        List<RideDetailDTO> rides = rideService.findRidesByDateAsDTO(date);
+        List<RideDetailDTO> rides = rideService.findRidesByDate(date);
         return ResponseEntity.ok(rides);
     }
 
@@ -207,10 +207,9 @@ public class UnifiedController {
         LocalDateTime start = date.atStartOfDay();
         LocalDateTime end = date.plusDays(1).atStartOfDay();
 
-        List<Ride> rides = rideRepository.findByPickupTimeBetween(start, end).stream()
+        List<Ride> rides = rideService.findUnassignedRides(date).stream()
                 .filter(ride -> ride.getPickupDriver() == null && ride.getDropoffDriver() == null)
                 .toList();
-
         return ResponseEntity.ok(rides);
     }
 

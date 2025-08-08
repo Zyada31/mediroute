@@ -1,7 +1,3 @@
-// ============================================================================
-// IMPROVED DRIVER CONTROLLER - FIXES LAZY LOADING AND ERROR HANDLING
-// ============================================================================
-
 package com.mediroute.controller;
 
 import com.mediroute.dto.DriverDTO;
@@ -60,15 +56,15 @@ public class DriverController {
             return ResponseEntity.status(HttpStatus.CREATED).body(response);
 
         } catch (IllegalStateException e) {
-            log.warn("❌ Duplicate driver: {}", createRequest.getName());
+            log.warn("Duplicate driver: {}", createRequest.getName());
             return ResponseEntity.status(HttpStatus.CONFLICT)
                     .body(createErrorResponse("DUPLICATE_DRIVER", e.getMessage()));
         } catch (IllegalArgumentException e) {
-            log.error("❌ Invalid driver data for {}", createRequest.getName(), e);
+            log.error("Invalid driver data for {}", createRequest.getName(), e);
             return ResponseEntity.badRequest()
                     .body(createErrorResponse("INVALID_DATA", e.getMessage()));
         } catch (Exception e) {
-            log.error("❌ Unexpected error creating driver: {}", createRequest.getName(), e);
+            log.error("Unexpected error creating driver: {}", createRequest.getName(), e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                     .body(createErrorResponse("INTERNAL_ERROR", "Failed to create driver"));
         }
@@ -94,11 +90,11 @@ public class DriverController {
             return ResponseEntity.ok(response);
 
         } catch (IllegalArgumentException e) {
-            log.error("❌ Invalid update data for driver {}", id, e);
+            log.error("Invalid update data for driver {}", id, e);
             return ResponseEntity.badRequest()
                     .body(createErrorResponse("INVALID_DATA", e.getMessage()));
         } catch (Exception e) {
-            log.error("❌ Unexpected error updating driver {}", id, e);
+            log.error("Unexpected error updating driver {}", id, e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                     .body(createErrorResponse("INTERNAL_ERROR", "Failed to update driver"));
         }
@@ -111,7 +107,7 @@ public class DriverController {
     public ResponseEntity<BatchDriverResponse> createMultipleDrivers(
             @Valid @RequestBody List<DriverCreateDTO> createRequests) {
 
-        log.info("🚗 Processing batch creation of {} drivers", createRequests.size());
+        log.info("Processing batch creation of {} drivers", createRequests.size());
 
         BatchDriverResponse response = new BatchDriverResponse();
 
@@ -125,15 +121,15 @@ public class DriverController {
                 log.warn("⚠️ Skipped duplicate driver: {}", createRequest.getName());
                 response.addError(createRequest.getName(), "DUPLICATE_DRIVER", e.getMessage());
             } catch (IllegalArgumentException e) {
-                log.error("❌ Failed to process driver: {}", createRequest.getName(), e);
+                log.error("Failed to process driver: {}", createRequest.getName(), e);
                 response.addError(createRequest.getName(), "INVALID_DATA", e.getMessage());
             } catch (Exception e) {
-                log.error("❌ Unexpected error for driver: {}", createRequest.getName(), e);
+                log.error("Unexpected error for driver: {}", createRequest.getName(), e);
                 response.addError(createRequest.getName(), "INTERNAL_ERROR", "Failed to create driver");
             }
         }
 
-        log.info("✅ Batch processing complete: {} successful, {} failed",
+        log.info("Batch processing complete: {} successful, {} failed",
                 response.getSuccessful().size(), response.getErrors().size());
 
         return ResponseEntity.ok(response);
@@ -152,7 +148,7 @@ public class DriverController {
 
             return ResponseEntity.ok(driverDTOs);
         } catch (Exception e) {
-            log.error("❌ Error retrieving drivers", e);
+            log.error("Error retrieving drivers", e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
         }
     }
@@ -167,7 +163,7 @@ public class DriverController {
                     .map(ResponseEntity::ok)
                     .orElse(ResponseEntity.notFound().build());
         } catch (Exception e) {
-            log.error("❌ Error retrieving driver {}", id, e);
+            log.error("Error retrieving driver {}", id, e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
         }
     }
@@ -183,7 +179,7 @@ public class DriverController {
 
             return ResponseEntity.ok(driverDTOs);
         } catch (Exception e) {
-            log.error("❌ Error retrieving active drivers", e);
+            log.error("Error retrieving active drivers", e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
         }
     }
@@ -213,7 +209,7 @@ public class DriverController {
 
             return ResponseEntity.ok(driverDTOs);
         } catch (Exception e) {
-            log.error("❌ Error filtering drivers by capability", e);
+            log.error("Error filtering drivers by capability", e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
         }
     }
@@ -231,26 +227,25 @@ public class DriverController {
         } catch (IllegalArgumentException e) {
             return ResponseEntity.notFound().build();
         } catch (Exception e) {
-            log.error("❌ Error getting workload for driver {}", id, e);
+            log.error("Error getting workload for driver {}", id, e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
         }
     }
 
-    @Operation(summary = "Get all driver workloads", description = "Get workload summary for all drivers on a specific date")
-    @GetMapping("/workload")
-    public ResponseEntity<?> getAllDriverWorkloads(
-            @Parameter(description = "Date (YYYY-MM-DD)") @RequestParam LocalDate date) {
-        try {
-            var workloads = driverService.getAllDriverWorkloads(date);
-            return ResponseEntity.ok(workloads);
-        } catch (Exception e) {
-            log.error("❌ Error getting all driver workloads for {}", date, e);
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
-        }
-    }
+//    @Operation(summary = "Get all driver workloads", description = "Get workload summary for all drivers on a specific date")
+//    @GetMapping("/workload")
+//    public ResponseEntity<?> getAllDriverWorkloads(
+//            @Parameter(description = "Date (YYYY-MM-DD)") @RequestParam LocalDate date) {
+//        try {
+//            var workloads = driverService.getAllDriverWorkloads(date);
+//            return ResponseEntity.ok(workloads);
+//        } catch (Exception e) {
+//            log.error("Error getting all driver workloads for {}", date, e);
+//            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+//        }
+//    }
 
     // ========== STATISTICS ==========
-
     @Operation(summary = "Get driver statistics", description = "Get comprehensive driver statistics")
     @GetMapping("/statistics")
     public ResponseEntity<DriverStatisticsDTO> getDriverStatistics() {
@@ -266,13 +261,12 @@ public class DriverController {
 
             return ResponseEntity.ok(statsDTO);
         } catch (Exception e) {
-            log.error("❌ Error getting driver statistics", e);
+            log.error("Error getting driver statistics", e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
         }
     }
 
     // ========== MANAGEMENT OPERATIONS ==========
-
     @Operation(summary = "Deactivate driver", description = "Deactivate a driver")
     @PutMapping("/{id}/deactivate")
     public ResponseEntity<?> deactivateDriver(
@@ -283,7 +277,7 @@ public class DriverController {
         } catch (IllegalArgumentException e) {
             return ResponseEntity.notFound().build();
         } catch (Exception e) {
-            log.error("❌ Error deactivating driver {}", id, e);
+            log.error("Error deactivating driver {}", id, e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                     .body(createErrorResponse("INTERNAL_ERROR", "Failed to deactivate driver"));
         }
@@ -302,14 +296,13 @@ public class DriverController {
             return ResponseEntity.badRequest()
                     .body(createErrorResponse("INVALID_STATE", e.getMessage()));
         } catch (Exception e) {
-            log.error("❌ Error reactivating driver {}", id, e);
+            log.error("Error reactivating driver {}", id, e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                     .body(createErrorResponse("INTERNAL_ERROR", "Failed to reactivate driver"));
         }
     }
 
     // ========== HELPER METHODS ==========
-
     private DriverDTO convertCreateDTOToDriverDTO(DriverCreateDTO createDTO) {
         DriverDTO driverDTO = new DriverDTO(
                 createDTO.getName(),
@@ -384,7 +377,6 @@ public class DriverController {
     }
 
     // ========== RESPONSE CLASSES ==========
-
     public static class BatchDriverResponse {
         private List<DriverDetailDTO> successful = new ArrayList<>();
         private List<DriverError> errors = new ArrayList<>();
