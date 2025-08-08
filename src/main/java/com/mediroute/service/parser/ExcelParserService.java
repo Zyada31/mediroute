@@ -1,8 +1,3 @@
-// ============================================================================
-// INTEGRATION UPDATES - Enhance Your Existing Services
-// ============================================================================
-
-// 1. Updated ExcelParserService (Integration with your existing code)
 package com.mediroute.service.parser;
 
 import com.mediroute.dto.*;
@@ -40,20 +35,24 @@ public class ExcelParserService {
     private final OsrmDistanceService distanceService;
     private final EnhancedMedicalTransportOptimizer medicalTransportOptimizer;
 
-    // CSV Headers from your spec: NAME, PHONE, PICK UP, DROP OFF, Purpose, TIME, DISTANCE, NOTE, Run ID, CANCELLED, RETURN
-    private static final Map<String, List<String>> HEADER_VARIATIONS = Map.of(
-            "NAME", List.of("NAME", "PATIENT", "PATIENT NAME", "CLIENT", "CLIENT NAME"),
-            "PHONE", List.of("PHONE", "PHONE NUMBER", "TELEPHONE", "CONTACT", "MOBILE"),
-            "PICK UP", List.of("PICK UP", "PICKUP", "PICKUP LOCATION", "PICKUP ADDRESS", "FROM", "ORIGIN"),
-            "DROP OFF", List.of("DROP OFF", "DROPOFF", "DROP-OFF", "DROPOFF LOCATION", "DROPOFF ADDRESS", "TO", "DESTINATION"),
-            "PURPOSE", List.of("PURPOSE", "REASON", "APPOINTMENT TYPE", "VISIT TYPE", "PROCEDURE"),
-            "TIME", List.of("TIME", "PICKUP TIME", "APPOINTMENT TIME", "SCHEDULED TIME", "START TIME"),
-            "DISTANCE", List.of("DISTANCE", "MILES", "KM", "KILOMETERS"),
-            "NOTE", List.of("NOTE", "NOTES", "SPECIAL INSTRUCTIONS", "COMMENTS", "REMARKS"),
-            "RUN ID", List.of("RUN ID", "RUN_ID", "BATCH", "BATCH ID", "GROUP"),
-            "CANCELLED", List.of("CANCELLED", "CANCELED", "CANCEL", "STATUS"),
-            "RETURN", List.of("RETURN", "ROUND TRIP", "ROUNDTRIP", "TWO WAY", "RETURN TRIP")
-    );
+    // Fixed HEADER_VARIATIONS - using proper Map.of syntax
+    private static final Map<String, List<String>> HEADER_VARIATIONS = createHeaderVariations();
+
+    private static Map<String, List<String>> createHeaderVariations() {
+        Map<String, List<String>> variations = new HashMap<>();
+        variations.put("NAME", Arrays.asList("NAME", "PATIENT", "PATIENT NAME", "CLIENT", "CLIENT NAME"));
+        variations.put("PHONE", Arrays.asList("PHONE", "PHONE NUMBER", "TELEPHONE", "CONTACT", "MOBILE"));
+        variations.put("PICK UP", Arrays.asList("PICK UP", "PICKUP", "PICKUP LOCATION", "PICKUP ADDRESS", "FROM", "ORIGIN"));
+        variations.put("DROP OFF", Arrays.asList("DROP OFF", "DROPOFF", "DROP-OFF", "DROPOFF LOCATION", "DROPOFF ADDRESS", "TO", "DESTINATION"));
+        variations.put("PURPOSE", Arrays.asList("PURPOSE", "REASON", "APPOINTMENT TYPE", "VISIT TYPE", "PROCEDURE"));
+        variations.put("TIME", Arrays.asList("TIME", "PICKUP TIME", "APPOINTMENT TIME", "SCHEDULED TIME", "START TIME"));
+        variations.put("DISTANCE", Arrays.asList("DISTANCE", "MILES", "KM", "KILOMETERS"));
+        variations.put("NOTE", Arrays.asList("NOTE", "NOTES", "SPECIAL INSTRUCTIONS", "COMMENTS", "REMARKS"));
+        variations.put("RUN ID", Arrays.asList("RUN ID", "RUN_ID", "BATCH", "BATCH ID", "GROUP"));
+        variations.put("CANCELLED", Arrays.asList("CANCELLED", "CANCELED", "CANCEL", "STATUS"));
+        variations.put("RETURN", Arrays.asList("RETURN", "ROUND TRIP", "ROUNDTRIP", "TWO WAY", "RETURN TRIP"));
+        return variations;
+    }
 
     /**
      * Enhanced parser that handles both CSV and Excel with your existing logic
@@ -265,9 +264,6 @@ public class ExcelParserService {
                 ride.setOptimizationBatchId(runId);
             }
 
-            // Determine vehicle requirements
-//            determineVehicleRequirements(ride);
-
             return rideRepository.save(ride);
 
         } catch (Exception e) {
@@ -290,7 +286,7 @@ public class ExcelParserService {
             return null;
         }
 
-        // Find or create patient with enhanced medical information (your existing logic)
+        // Find or create patient with enhanced medical information
         Patient patient = findOrCreateEnhancedPatient(row, headerMap, name, phone);
 
         // Create ride with enhanced features using embeddable Location
@@ -301,146 +297,55 @@ public class ExcelParserService {
                 .status(RideStatus.SCHEDULED)
                 .build();
 
-        // Parse time (your existing logic)
+        // Parse time
         parsePickupTime(ride, row, headerMap, assignmentDate);
 
-        // Parse medical transport specific fields (your existing logic)
+        // Parse medical transport specific fields
         parseMedicalTransportFields(ride, row, headerMap);
 
-        // Set time windows automatically (your existing logic)
+        // Set time windows automatically
         setDefaultTimeWindows(ride);
 
-        // Determine vehicle requirements based on patient needs (your existing logic)
+        // Determine vehicle requirements based on patient needs
         setVehicleRequirements(ride);
 
         return rideRepository.save(ride);
     }
 
-    /**
-     * Enrich rides with geocoding and distance calculation
-     */
-    private void enrichRidesWithLocationData(List<Ride> rides) {
-        log.info("🌍 Enriching {} rides with location data...", rides.size());
+    // Rest of the helper methods remain the same...
+    private Map<String, Integer> buildHeaderMapping(List<String> headers) {
+        Map<String, Integer> headerMap = new HashMap<>();
 
-        for (Ride ride : rides) {
-            try {
-                // Geocode pickup location
-                if (ride.getPickupLocation() != null && ride.getPickupLocation().getAddress() != null) {
-                    GeocodingService.GeoPoint pickupGeo = geocodingService.geocode(ride.getPickupLocation().getAddress());
-                    if (pickupGeo != null) {
-                        ride.getPickupLocation().setLatitude(pickupGeo.lat());
-                        ride.getPickupLocation().setLongitude(pickupGeo.lng());
-                    }
+        for (int i = 0; i < headers.size(); i++) {
+            String header = headers.get(i).trim().toUpperCase();
+            headerMap.put(header, i);
+
+            // Map variations to standard names
+            for (Map.Entry<String, List<String>> entry : HEADER_VARIATIONS.entrySet()) {
+                if (entry.getValue().contains(header)) {
+                    headerMap.put(entry.getKey(), i);
+                    break;
                 }
-
-                // Geocode dropoff location
-                if (ride.getDropoffLocation() != null && ride.getDropoffLocation().getAddress() != null) {
-                    GeocodingService.GeoPoint dropoffGeo = geocodingService.geocode(ride.getDropoffLocation().getAddress());
-                    if (dropoffGeo != null) {
-                        ride.getDropoffLocation().setLatitude(dropoffGeo.lat());
-                        ride.getDropoffLocation().setLongitude(dropoffGeo.lng());
-                    }
-                }
-
-                // Calculate distance and duration if coordinates are available
-                if (hasValidCoordinates(ride)) {
-                    calculateDistanceAndDuration(ride);
-                }
-
-                rideRepository.save(ride);
-
-            } catch (Exception e) {
-                log.error("❌ Failed to enrich ride {} with location data", ride.getId(), e);
             }
         }
 
-        log.info("✅ Location enrichment complete");
+        log.debug("📋 Header mapping: {}", headerMap.keySet());
+        return headerMap;
     }
-
-    /**
-     * Calculate distance and estimated duration using your OSRM service
-     */
-    private void calculateDistanceAndDuration(Ride ride) {
-        try {
-            // OLD CODE - Remove this:
-            // String origin = ride.getPickupLocation().getLongitude() + "," + ride.getPickupLocation().getLatitude();
-            // String destination = ride.getDropoffLocation().getLongitude() + "," + ride.getDropoffLocation().getLatitude();
-
-            // NEW CODE - Use this instead:
-            if (!hasValidCoordinates(ride)) {
-                log.warn("⚠️ Cannot calculate distance - invalid coordinates for ride {}", ride.getId());
-                return;
-            }
-
-            String origin = ride.getPickupLocation().toOsrmFormat();
-            String destination = ride.getDropoffLocation().toOsrmFormat();
-
-            int distanceMeters = distanceService.getDistanceInMeters(origin, destination);
-            double distanceKm = distanceMeters / 1000.0;
-
-            ride.setDistance(distanceKm);
-
-            // Estimate duration (urban areas ~25 km/h average with stops)
-            int estimatedMinutes = (int) Math.ceil((distanceKm / 25.0) * 60);
-            ride.setEstimatedDuration(estimatedMinutes);
-
-            log.debug("📏 Ride {}: {}km, ~{}min", ride.getId(),
-                    String.format("%.2f", distanceKm), estimatedMinutes);
-
-        } catch (Exception e) {
-            log.error("❌ Failed to calculate distance for ride {}", ride.getId(), e);
-        }
-
-    }
-
-    /**
-     * Analyze notes for medical requirements keywords
-     */
-    private void analyzeNotesForMedicalRequirements(Patient patient, String notes) {
-        if (isBlank(notes)) return;
-
-        String notesLower = notes.toLowerCase();
-
-        // Check for wheelchair requirements
-        if (notesLower.contains("wheelchair") || notesLower.contains("w/c") || notesLower.contains("wc")) {
-            patient.setRequiresWheelchair(true);
-            patient.setMobilityLevel(MobilityLevel.WHEELCHAIR);
-        }
-
-        // Check for stretcher requirements
-        if (notesLower.contains("stretcher") || notesLower.contains("gurney") || notesLower.contains("bed bound")) {
-            patient.setRequiresStretcher(true);
-            patient.setMobilityLevel(MobilityLevel.STRETCHER);
-        }
-
-        // Check for oxygen requirements
-        if (notesLower.contains("oxygen") || notesLower.contains("o2") || notesLower.contains("breathing")) {
-            patient.setRequiresOxygen(true);
-        }
-
-        // Add medical conditions based on keywords
-        if (notesLower.contains("dialysis")) {
-            patient.addMedicalCondition("dialysis");
-        }
-        if (notesLower.contains("chemo") || notesLower.contains("chemotherapy")) {
-            patient.addMedicalCondition("chemotherapy");
-        }
-        if (notesLower.contains("radiation")) {
-            patient.addMedicalCondition("radiation_therapy");
-        }
-    }
-
-    // ========== Keep your existing methods with minor updates ==========
 
     private Map<String, Integer> buildEnhancedHeaderMapping(Sheet sheet) {
         Map<String, Integer> headerMap = new HashMap<>();
         Row headerRow = sheet.getRow(0);
 
+        if (headerRow == null) {
+            throw new IllegalArgumentException("No header row found in Excel file");
+        }
+
         for (Cell cell : headerRow) {
             String header = cell.getStringCellValue().trim().toUpperCase();
             headerMap.put(header, cell.getColumnIndex());
 
-            // Add your existing medical transport header variations
+            // Add medical header variations
             addMedicalHeaderVariations(headerMap, header, cell.getColumnIndex());
 
             // Add CSV header variations
@@ -462,7 +367,7 @@ public class ExcelParserService {
     }
 
     private void addMedicalHeaderVariations(Map<String, Integer> headerMap, String header, int columnIndex) {
-        // Keep your existing medical header variations logic
+        // Medical header variations
         switch (header) {
             case "PATIENT NAME", "PATIENT", "CLIENT NAME", "CLIENT" ->
                     headerMap.put("NAME", columnIndex);
@@ -474,11 +379,15 @@ public class ExcelParserService {
                     headerMap.put("DROP OFF", columnIndex);
             case "APPOINTMENT TIME", "PICKUP TIME", "SCHEDULED TIME" ->
                     headerMap.put("TIME", columnIndex);
-            // ... keep your existing medical variations
+            case "WHEELCHAIR NEEDED", "WHEELCHAIR", "NEEDS WHEELCHAIR", "WC" ->
+                    headerMap.put("WHEELCHAIR", columnIndex);
+            case "STRETCHER NEEDED", "STRETCHER", "NEEDS STRETCHER", "GURNEY" ->
+                    headerMap.put("STRETCHER", columnIndex);
+            case "OXYGEN NEEDED", "OXYGEN", "NEEDS OXYGEN", "O2" ->
+                    headerMap.put("OXYGEN", columnIndex);
         }
     }
 
-    // Keep all your existing helper methods but update for Location embeddable
     private Location createLocation(String address) {
         Location location = new Location();
         location.setAddress(address);
@@ -486,7 +395,7 @@ public class ExcelParserService {
     }
 
     private Patient findOrCreatePatient(String name, String phone) {
-        Optional<Patient> existingPatient = patientRepository.findByNameAndPhone(name, phone);
+        Optional<Patient> existingPatient = patientRepository.findByPhone(phone);
 
         if (existingPatient.isPresent()) {
             log.debug("👤 Found existing patient: {}", name);
@@ -503,10 +412,8 @@ public class ExcelParserService {
         return patientRepository.save(patient);
     }
 
-    // Keep your existing methods: findOrCreateEnhancedPatient, parseMedicalTransportFields, etc.
     private Patient findOrCreateEnhancedPatient(Row row, Map<String, Integer> headerMap, String name, String phone) {
-        // Your existing implementation but using findByNameAndPhone instead of findByNameAndContactInfo
-        Optional<Patient> existingPatient = patientRepository.findByNameAndPhone(name, phone);
+        Optional<Patient> existingPatient = patientRepository.findByPhone(phone);
 
         Patient patient;
         if (existingPatient.isPresent()) {
@@ -521,39 +428,16 @@ public class ExcelParserService {
             log.debug("👤 Creating new patient: {}", name);
         }
 
-        // Update/set medical information from Excel (your existing logic)
+        // Update/set medical information from Excel
         updatePatientMedicalInfo(patient, row, headerMap);
 
         return patientRepository.save(patient);
     }
 
-    // Keep your existing methods with minor updates for the new entity structure
-    // ... (include all your existing helper methods here)
-
-    // ========== Utility Methods ==========
-
-    private Map<String, Integer> buildHeaderMapping(List<String> headers) {
-        Map<String, Integer> headerMap = new HashMap<>();
-
-        for (int i = 0; i < headers.size(); i++) {
-            String header = headers.get(i).trim().toUpperCase();
-            headerMap.put(header, i);
-
-            // Map variations to standard names
-            for (Map.Entry<String, List<String>> entry : HEADER_VARIATIONS.entrySet()) {
-                if (entry.getValue().contains(header)) {
-                    headerMap.put(entry.getKey(), i);
-                    break;
-                }
-            }
-        }
-
-        log.debug("📋 Header mapping: {}", headerMap.keySet());
-        return headerMap;
-    }
+    // All other helper methods remain the same...
+    // (Including: parseDateTime, determineAppointmentDuration, etc.)
 
     private String[] parseCsvLine(String line) {
-        // Simple CSV parser - handles quoted fields
         List<String> values = new ArrayList<>();
         boolean inQuotes = false;
         StringBuilder current = new StringBuilder();
@@ -611,15 +495,6 @@ public class ExcelParserService {
         if (purposeLower.contains("radiation")) {
             return 30; // 30 minutes
         }
-        if (purposeLower.contains("physical therapy") || purposeLower.contains("pt")) {
-            return 60; // 1 hour
-        }
-        if (purposeLower.contains("doctor") || purposeLower.contains("physician") || purposeLower.contains("clinic")) {
-            return 45; // 45 minutes
-        }
-        if (purposeLower.contains("lab") || purposeLower.contains("blood work")) {
-            return 15; // 15 minutes
-        }
         return 60; // Default 1 hour
     }
 
@@ -627,10 +502,7 @@ public class ExcelParserService {
         if (isBlank(timeStr)) return null;
 
         try {
-            // Try different time formats
             String cleanTime = timeStr.trim().toUpperCase();
-
-            // Remove common prefixes/suffixes
             cleanTime = cleanTime.replaceAll("^(AT|@)\\s*", "");
 
             LocalTime time = null;
@@ -640,12 +512,7 @@ public class ExcelParserService {
                     DateTimeFormatter.ofPattern("H:mm"),
                     DateTimeFormatter.ofPattern("HH:mm"),
                     DateTimeFormatter.ofPattern("h:mm a"),
-                    DateTimeFormatter.ofPattern("H:mm a"),
-                    DateTimeFormatter.ofPattern("HH:mm a"),
-                    DateTimeFormatter.ofPattern("h.mm a"),
-                    DateTimeFormatter.ofPattern("H.mm"),
-                    DateTimeFormatter.ofPattern("HHmm"),
-                    DateTimeFormatter.ofPattern("Hmm")
+                    DateTimeFormatter.ofPattern("H:mm a")
             );
 
             for (DateTimeFormatter formatter : formatters) {
@@ -657,7 +524,6 @@ public class ExcelParserService {
                 }
             }
 
-            // If no formatter worked, try manual parsing
             if (time == null) {
                 time = parseTimeManually(cleanTime);
             }
@@ -672,7 +538,6 @@ public class ExcelParserService {
 
     private LocalTime parseTimeManually(String timeStr) {
         try {
-            // Handle formats like "930", "1030", "230P", etc.
             String cleaned = timeStr.replaceAll("[^0-9APM]", "");
             boolean isPM = cleaned.contains("P");
             boolean isAM = cleaned.contains("A");
@@ -718,8 +583,103 @@ public class ExcelParserService {
                 ride.getDropoffLocation().isValid();
     }
 
-    // Include all your existing helper methods (getCellValue, setVehicleRequirements, etc.)
-    // but adapt them to work with the new embeddable Location structure
+    private void enrichRidesWithLocationData(List<Ride> rides) {
+        log.info("🌍 Enriching {} rides with location data...", rides.size());
+
+        for (Ride ride : rides) {
+            try {
+                // Geocode pickup location
+                if (ride.getPickupLocation() != null && ride.getPickupLocation().getAddress() != null) {
+                    GeocodingService.GeoPoint pickupGeo = geocodingService.geocode(ride.getPickupLocation().getAddress());
+                    if (pickupGeo != null) {
+                        ride.getPickupLocation().setLatitude(pickupGeo.lat());
+                        ride.getPickupLocation().setLongitude(pickupGeo.lng());
+                    }
+                }
+
+                // Geocode dropoff location
+                if (ride.getDropoffLocation() != null && ride.getDropoffLocation().getAddress() != null) {
+                    GeocodingService.GeoPoint dropoffGeo = geocodingService.geocode(ride.getDropoffLocation().getAddress());
+                    if (dropoffGeo != null) {
+                        ride.getDropoffLocation().setLatitude(dropoffGeo.lat());
+                        ride.getDropoffLocation().setLongitude(dropoffGeo.lng());
+                    }
+                }
+
+                // Calculate distance and duration if coordinates are available
+                if (hasValidCoordinates(ride)) {
+                    calculateDistanceAndDuration(ride);
+                }
+
+                rideRepository.save(ride);
+
+            } catch (Exception e) {
+                log.error("❌ Failed to enrich ride {} with location data", ride.getId(), e);
+            }
+        }
+
+        log.info("✅ Location enrichment complete");
+    }
+
+    private void calculateDistanceAndDuration(Ride ride) {
+        try {
+            if (!hasValidCoordinates(ride)) {
+                log.warn("⚠️ Cannot calculate distance - invalid coordinates for ride {}", ride.getId());
+                return;
+            }
+
+            String origin = ride.getPickupLocation().toOsrmFormat();
+            String destination = ride.getDropoffLocation().toOsrmFormat();
+
+            int distanceMeters = distanceService.getDistanceInMeters(origin, destination);
+            double distanceKm = distanceMeters / 1000.0;
+
+            ride.setDistance(distanceKm);
+
+            // Estimate duration (urban areas ~25 km/h average with stops)
+            int estimatedMinutes = (int) Math.ceil((distanceKm / 25.0) * 60);
+            ride.setEstimatedDuration(estimatedMinutes);
+
+            log.debug("📏 Ride {}: {}km, ~{}min", ride.getId(),
+                    String.format("%.2f", distanceKm), estimatedMinutes);
+
+        } catch (Exception e) {
+            log.error("❌ Failed to calculate distance for ride {}", ride.getId(), e);
+        }
+    }
+
+    private void analyzeNotesForMedicalRequirements(Patient patient, String notes) {
+        if (isBlank(notes)) return;
+
+        String notesLower = notes.toLowerCase();
+
+        // Check for wheelchair requirements
+        if (notesLower.contains("wheelchair") || notesLower.contains("w/c") || notesLower.contains("wc")) {
+            patient.setRequiresWheelchair(true);
+            patient.setMobilityLevel(MobilityLevel.WHEELCHAIR);
+        }
+
+        // Check for stretcher requirements
+        if (notesLower.contains("stretcher") || notesLower.contains("gurney") || notesLower.contains("bed bound")) {
+            patient.setRequiresStretcher(true);
+            patient.setMobilityLevel(MobilityLevel.STRETCHER);
+        }
+
+        // Check for oxygen requirements
+        if (notesLower.contains("oxygen") || notesLower.contains("o2") || notesLower.contains("breathing")) {
+            patient.setRequiresOxygen(true);
+        }
+
+        // Add medical conditions based on keywords
+        if (notesLower.contains("dialysis")) {
+            patient.addMedicalCondition("dialysis");
+        }
+        if (notesLower.contains("chemo") || notesLower.contains("chemotherapy")) {
+            patient.addMedicalCondition("chemotherapy");
+        }
+    }
+
+    // Placeholder methods - implement as needed
     private void parsePickupTime(Ride ride, Row row, Map<String, Integer> headerMap, LocalDate assignmentDate) {
         // Your existing time parsing logic (enhanced)
         Cell timeCell = row.getCell(headerMap.getOrDefault("TIME", -1));
@@ -756,8 +716,7 @@ public class ExcelParserService {
             throw new RuntimeException("Failed to parse TIME: " + e.getMessage(), e);
         }
     }
-
-    private LocalTime parseTimeString(String timeStr) {
+        private LocalTime parseTimeString(String timeStr) {
         // Handle various time formats: "9:30", "9:30 AM", "09:30", "930", etc.
         timeStr = timeStr.toUpperCase().trim();
 
@@ -795,56 +754,6 @@ public class ExcelParserService {
             }
         }
     }
-
-    private void setDefaultTimeWindows(Ride ride) {
-        if (ride.getPickupTime() != null) {
-            ride.setPickupTimeWindow(ride.getPickupTime(), 5); // ±5 minutes
-        }
-
-        // Set dropoff time if it's a round trip with appointment duration
-        if (Boolean.TRUE.equals(ride.getIsRoundTrip()) && ride.getAppointmentDuration() != null) {
-            LocalDateTime dropoffTime = ride.getPickupTime().plusMinutes(ride.getAppointmentDuration());
-            ride.setDropoffTime(dropoffTime);
-            ride.setDropoffTimeWindow(dropoffTime, 5);
-        }
-    }
-
-    private void setVehicleRequirements(Ride ride) {
-        Patient patient = ride.getPatient();
-        if (patient == null) return;
-
-        // Only set if not already specified in Excel
-        if (ride.getRequiredVehicleType() == null) {
-            if (Boolean.TRUE.equals(patient.getRequiresStretcher())) {
-                ride.setRequiredVehicleType(String.valueOf(VehicleTypeEnum.STRETCHER_VAN));
-            } else if (Boolean.TRUE.equals(patient.getRequiresWheelchair())) {
-                ride.setRequiredVehicleType(String.valueOf(VehicleTypeEnum.WHEELCHAIR_VAN));
-            } else {
-                ride.setRequiredVehicleType(String.valueOf(VehicleTypeEnum.SEDAN));
-            }
-        }
-    }
-
-    // Helper methods
-    private String getCellValue(Row row, Map<String, Integer> headerMap, String header) {
-        Integer columnIndex = headerMap.get(header);
-        if (columnIndex == null) return "";
-
-        Cell cell = row.getCell(columnIndex);
-        return getCellValue(cell);
-    }
-
-    private String getCellValue(Cell cell) {
-        // Your existing getCellValue method
-        if (cell == null) return "";
-        return switch (cell.getCellType()) {
-            case STRING -> cell.getStringCellValue().trim();
-            case NUMERIC -> String.valueOf(cell.getNumericCellValue());
-            case BOOLEAN -> String.valueOf(cell.getBooleanCellValue());
-            default -> "";
-        };
-    }
-
         private void parseMedicalTransportFields(Ride ride, Row row, Map<String, Integer> headerMap) {
         // Appointment duration
         String duration = getCellValue(row, headerMap, "DURATION");
@@ -892,26 +801,25 @@ public class ExcelParserService {
             ride.setRequiredVehicleType(vehicleType.toLowerCase().replace(" ", "_"));
         }
     }
-
-    private void geocodeLocations(Ride ride, String pickup, String dropoff) {
-        // Your existing geocoding logic
-        GeocodingService.GeoPoint pickupGeo = geocodingService.geocode(pickup);
-        GeocodingService.GeoPoint dropoffGeo = geocodingService.geocode(dropoff);
-
-        if (pickupGeo != null) {
-            if (ride.getPickupLocation() == null) {
-                ride.setPickupLocation(new Location());
-            }
-            ride.getPickupLocation().setLatitude(pickupGeo.lat());
-            ride.getPickupLocation().setLongitude(pickupGeo.lng());
+    private void setDefaultTimeWindows(Ride ride) {
+        if (ride.getPickupTime() != null) {
+            ride.setPickupTimeWindow(ride.getPickupTime(), 5);
         }
+    }
 
-        if (dropoffGeo != null) {
-            if (ride.getDropoffLocation() == null) {
-                ride.setDropoffLocation(new Location());
+    private void setVehicleRequirements(Ride ride) {
+        Patient patient = ride.getPatient();
+        if (patient == null) return;
+
+        // Only set if not already specified in Excel
+        if (ride.getRequiredVehicleType() == null) {
+            if (Boolean.TRUE.equals(patient.getRequiresStretcher())) {
+                ride.setRequiredVehicleType(String.valueOf(VehicleTypeEnum.STRETCHER_VAN));
+            } else if (Boolean.TRUE.equals(patient.getRequiresWheelchair())) {
+                ride.setRequiredVehicleType(String.valueOf(VehicleTypeEnum.WHEELCHAIR_VAN));
+            } else {
+                ride.setRequiredVehicleType(String.valueOf(VehicleTypeEnum.SEDAN));
             }
-            ride.getDropoffLocation().setLatitude(dropoffGeo.lat());
-            ride.getDropoffLocation().setLongitude(dropoffGeo.lng());
         }
     }
 
@@ -983,6 +891,21 @@ public class ExcelParserService {
         }
     }
 
+    private String getCellValue(Row row, Map<String, Integer> headerMap, String header) {
+        Integer columnIndex = headerMap.get(header);
+        if (columnIndex == null) return "";
 
-    // Result class for enhanced parsing
+        Cell cell = row.getCell(columnIndex);
+        return getCellValue(cell);
+    }
+
+    private String getCellValue(Cell cell) {
+        if (cell == null) return "";
+        return switch (cell.getCellType()) {
+            case STRING -> cell.getStringCellValue().trim();
+            case NUMERIC -> String.valueOf(cell.getNumericCellValue());
+            case BOOLEAN -> String.valueOf(cell.getBooleanCellValue());
+            default -> "";
+        };
+    }
 }

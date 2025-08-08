@@ -951,8 +951,8 @@ public class EnhancedMedicalTransportOptimizer {
         return new RideAssignmentAuditDTO(
                 ride.getId(),
                 ride.getPatient() != null ? ride.getPatient().getName() : "Unknown",
-                ride.getPickupLocation(),
-                ride.getDropoffLocation(),
+                ride.getPickupLocation() != null ? ride.getPickupLocation().getAddress() : "Unknown", // FIXED
+                ride.getDropoffLocation() != null ? ride.getDropoffLocation().getAddress() : "Unknown", // FIXED
                 ride.getPickupDriver() != null ? ride.getPickupDriver().getId() : null,
                 ride.getPickupDriver() != null ? ride.getPickupDriver().getName() : "UNASSIGNED",
                 ride.getDropoffDriver() != null ? ride.getDropoffDriver().getId() : null,

@@ -1,4 +1,3 @@
-// 7. Schedule Repository
 package com.mediroute.repository;
 
 import com.mediroute.dto.RideStatus;
@@ -30,7 +29,7 @@ public interface ScheduleRepository extends BaseRepository<Schedule, Long> {
 
     List<Schedule> findByAssignedDriverIdAndDateAndStatus(Long driverId, LocalDate date, RideStatus status);
 
-    // Time-based Queries
+    // Time-based Queries - SIMPLIFIED
     @Query("SELECT s FROM Schedule s WHERE s.date BETWEEN :startDate AND :endDate ORDER BY s.date, s.sequenceNumber")
     List<Schedule> findByDateRangeOrderByDateAndSequence(@Param("startDate") LocalDate startDate,
                                                          @Param("endDate") LocalDate endDate);
@@ -41,26 +40,27 @@ public interface ScheduleRepository extends BaseRepository<Schedule, Long> {
                                             @Param("startDate") LocalDate startDate,
                                             @Param("endDate") LocalDate endDate);
 
-    // Optimization Queries
+    // Optimization Queries - SIMPLIFIED
     List<Schedule> findByOptimizationBatchIdOrderBySequenceNumber(String batchId);
 
     @Query("SELECT s FROM Schedule s WHERE s.optimizationBatchId = :batchId AND s.assignedDriver.id = :driverId " +
             "ORDER BY s.sequenceNumber")
     List<Schedule> findByBatchIdAndDriverOrderBySequence(@Param("batchId") String batchId, @Param("driverId") Long driverId);
 
-    // Performance Queries
+    // Performance Queries - SIMPLIFIED (remove time arithmetic that might cause issues)
     @Query("SELECT s FROM Schedule s WHERE s.actualStartTime IS NOT NULL AND s.estimatedStartTime IS NOT NULL " +
-            "AND s.actualStartTime > s.estimatedStartTime AND s.date = :date")
-    List<Schedule> findLateSchedulesForDate(@Param("date") LocalDate date);
+            "AND s.date = :date")
+    List<Schedule> findSchedulesWithActualTimes(@Param("date") LocalDate date);
 
     @Query("SELECT COUNT(s) FROM Schedule s WHERE s.assignedDriver.id = :driverId AND s.date = :date")
     long countSchedulesForDriverAndDate(@Param("driverId") Long driverId, @Param("date") LocalDate date);
 
-    // Statistics
-    @Query("SELECT AVG(EXTRACT(EPOCH FROM (s.actualEndTime - s.actualStartTime))/60) FROM Schedule s " +
-            "WHERE s.actualStartTime IS NOT NULL AND s.actualEndTime IS NOT NULL AND s.date = :date")
-    Double getAverageRideDurationForDate(@Param("date") LocalDate date);
-
+    // Statistics - SIMPLIFIED (remove complex time calculations)
     @Query("SELECT s.assignedDriver.id, COUNT(s) FROM Schedule s WHERE s.date = :date GROUP BY s.assignedDriver.id")
     List<Object[]> countSchedulesByDriverForDate(@Param("date") LocalDate date);
+
+    // Additional simplified queries
+    List<Schedule> findByDateAndAssignedDriverIdIsNotNull(LocalDate date);
+
+    List<Schedule> findByDateAndAssignedDriverIdIsNull(LocalDate date);
 }

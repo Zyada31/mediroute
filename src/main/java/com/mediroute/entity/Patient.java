@@ -1,5 +1,8 @@
+// Fix for Patient.java - Add these annotations to break the circular reference
+
 package com.mediroute.entity;
 
+import com.fasterxml.jackson.annotation.JsonManagedReference;
 import com.mediroute.dto.MobilityLevel;
 import com.mediroute.entity.embeddable.Location;
 import jakarta.persistence.*;
@@ -144,11 +147,14 @@ public class Patient {
     @Column(name = "updated_at")
     private LocalDateTime updatedAt;
 
-    // Relationships
+    // Relationships - FIX: Add JsonManagedReference to break circular reference
     @OneToMany(mappedBy = "patient", cascade = CascadeType.ALL, fetch = FetchType.LAZY)
+    @JsonManagedReference("patient-rides") // This prevents infinite recursion
+    @Builder.Default
     private List<Ride> rides = new ArrayList<>();
 
     @OneToMany(mappedBy = "patient", cascade = CascadeType.ALL, fetch = FetchType.LAZY)
+    @Builder.Default
     private List<PatientHistory> history = new ArrayList<>();
 
     // Business Methods
