@@ -1,6 +1,6 @@
 package com.mediroute.service.patient;
 
-import com.mediroute.dto.PatientCreateDTO;
+import com.mediroute.dto.PatientDTO;
 import com.mediroute.dto.PatientSummaryDTO;
 import com.mediroute.dto.PatientUpdateDTO;
 import com.mediroute.entity.Patient;
@@ -88,7 +88,7 @@ public class PatientService implements BaseService<Patient, Long> {
     // ========== Enhanced Patient Operations ==========
 
     @Transactional
-    public Patient createPatient(PatientCreateDTO createDTO) {
+    public Patient createPatient(PatientDTO createDTO) {
         log.info("Creating new patient: {}", createDTO.getName());
 
         // Check for duplicates

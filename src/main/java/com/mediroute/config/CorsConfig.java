@@ -14,6 +14,8 @@ public class CorsConfig {
             public void addCorsMappings(CorsRegistry registry) {
                 registry.addMapping("/api/**")
                         .allowedOrigins(
+                                "http://localhost:5173",   // 👈 Vite dev
+                                "http://127.0.0.1:5173",   // 👈 sometimes needed
                                 "http://localhost:3000",
                                 "http://localhost:8080",
                                 "https://app.mediroute.com"
@@ -25,4 +27,15 @@ public class CorsConfig {
             }
         };
     }
+//    @Bean
+//    SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
+//        http
+//                .csrf(csrf -> csrf.disable()) // dev only
+//                .cors(cors -> {})             // 👈 enable CORS
+//                .authorizeHttpRequests(auth -> auth
+//                        .requestMatchers("/api/**").permitAll() // dev only; tighten later
+//                        .anyRequest().permitAll()
+//                );
+//        return http.build();
+//    }
 }

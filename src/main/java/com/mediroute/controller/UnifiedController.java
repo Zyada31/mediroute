@@ -77,7 +77,7 @@ public class UnifiedController {
         }
 
         ParseResult result = excelParserService.parseExcelWithMedicalFeatures(file, assignmentDate, false);
-        log.info("✅ Processed {} rides from file", result.getSuccessfulRows());
+        log.info("Processed {} rides from file", result.getSuccessfulRows());
 
         return ResponseEntity.ok(result);
     }
@@ -98,7 +98,7 @@ public class UnifiedController {
         }
 
         ParseResult result = excelParserService.parseExcelWithMedicalFeatures(file, assignmentDate, true);
-        log.info("✅ Processed and optimized {} rides from file", result.getSuccessfulRows());
+        log.info("Processed and optimized {} rides from file", result.getSuccessfulRows());
 
         return ResponseEntity.ok(result);
     }
@@ -121,10 +121,10 @@ public class UnifiedController {
         ParseResult result = excelParserService.parseExcelWithMedicalFeatures(file, assignmentDate, true);
 
         if (result.getRides().isEmpty()) {
-            return ResponseEntity.badRequest().body("❌ No rides parsed from file for " + assignmentDate);
+            return ResponseEntity.badRequest().body("No rides parsed from file for " + assignmentDate);
         }
 
-        String message = String.format("✅ Scheduling complete for %s. Rides: %d, Success Rate: %.1f%%",
+        String message = String.format("Scheduling complete for %s. Rides: %d, Success Rate: %.1f%%",
                 assignmentDate, result.getSuccessfulRows(), result.getSuccessRate());
 
         if (result.getOptimizationRan() && result.getOptimizationResult() != null) {
@@ -143,7 +143,7 @@ public class UnifiedController {
             @Parameter(description = "Date to optimize")
             @PathVariable @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date) {
 
-        log.info("🚀 Running optimization for date: {}", date);
+        log.info(" Running optimization for date: {}", date);
 
         LocalDateTime start = date.atStartOfDay();
         LocalDateTime end = date.plusDays(1).atStartOfDay();
@@ -153,12 +153,12 @@ public class UnifiedController {
                 .toList();
 
         if (rides.isEmpty()) {
-            return ResponseEntity.ok("✅ No unassigned rides found for " + date);
+            return ResponseEntity.ok("No unassigned rides found for " + date);
         }
 
         var result = medicalTransportOptimizer.optimizeSchedule(rides);
 
-        String message = String.format("✅ Optimization complete for %s. Processed: %d rides, Success Rate: %.1f%%",
+        String message = String.format("Optimization complete for %s. Processed: %d rides, Success Rate: %.1f%%",
                 date, rides.size(), result.getSuccessRate());
 
         return ResponseEntity.ok(message);
@@ -167,17 +167,17 @@ public class UnifiedController {
     @Operation(summary = "Optimize specific rides", description = "Run optimization on a list of specific ride IDs")
     @PostMapping("/optimization/rides")
     public ResponseEntity<String> optimizeSpecificRides(@RequestBody List<Long> rideIds) {
-        log.info("🚀 Running optimization for {} specific rides", rideIds.size());
+        log.info(" Running optimization for {} specific rides", rideIds.size());
 
         List<Ride> rides = rideRepository.findAllById(rideIds);
 
         if (rides.isEmpty()) {
-            return ResponseEntity.badRequest().body("❌ No valid rides found for the provided IDs");
+            return ResponseEntity.badRequest().body("No valid rides found for the provided IDs");
         }
 
         var result = medicalTransportOptimizer.optimizeSchedule(rides);
 
-        String message = String.format("✅ Optimization complete. Processed: %d rides, Success Rate: %.1f%%",
+        String message = String.format("Optimization complete. Processed: %d rides, Success Rate: %.1f%%",
                 rides.size(), result.getSuccessRate());
 
         return ResponseEntity.ok(message);
@@ -278,7 +278,7 @@ public class UnifiedController {
 
     @Operation(summary = "Get ride statistics", description = "Get statistical summary for rides on a specific date")
     @GetMapping("/statistics/rides")
-    public ResponseEntity<RideStatistics> getRideStatistics(
+    public ResponseEntity<RideStatisticsDTO> getRideStatisticsDTO(
             @Parameter(description = "Date for statistics")
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date) {
 
@@ -301,7 +301,7 @@ public class UnifiedController {
                 .filter(ride -> Boolean.TRUE.equals(ride.getIsRoundTrip()))
                 .count();
 
-        RideStatistics stats = RideStatistics.builder()
+        RideStatisticsDTO stats = RideStatisticsDTO.builder()
                 .date(date)
                 .totalRides((int) totalRides)
                 .assignedRides((int) assignedRides)
@@ -317,7 +317,7 @@ public class UnifiedController {
 
     @Operation(summary = "Get driver statistics", description = "Get statistical summary of drivers")
     @GetMapping("/statistics/drivers")
-    public ResponseEntity<DriverStatistics> getDriverStatistics() {
+    public ResponseEntity<DriverStatisticsDTO> getDriverStatistics() {
         List<Driver> activeDrivers = driverRepository.findByActiveTrue();
 
         long wheelchairAccessible = activeDrivers.stream()
@@ -330,11 +330,11 @@ public class UnifiedController {
                 .filter(d -> Boolean.TRUE.equals(d.getOxygenEquipped()))
                 .count();
 
-        DriverStatistics stats = DriverStatistics.builder()
-                .activeDrivers((long) activeDrivers.size())
-                .wheelchairCapableDrivers((int) wheelchairAccessible)
-                .stretcherCapableDrivers((int) stretcherCapable)
-                .oxygenEquippedDrivers((int) oxygenEquipped)
+        DriverStatisticsDTO stats = DriverStatisticsDTO.builder()
+                .totalActiveDrivers((long) activeDrivers.size())
+                .wheelchairAccessibleCount((int) wheelchairAccessible)
+                .stretcherCapableCount((int) stretcherCapable)
+                .oxygenEquippedCount((int) oxygenEquipped)
                 .build();
 
         return ResponseEntity.ok(stats);
@@ -353,12 +353,33 @@ public class UnifiedController {
                 .toList();
 
         if (rides.isEmpty()) {
-            return ResponseEntity.ok("✅ No unassigned rides found for today");
+            return ResponseEntity.ok("No unassigned rides found for today");
         }
 
         var result = medicalTransportOptimizer.optimizeSchedule(rides);
 
-        return ResponseEntity.ok(String.format("✅ Assignment complete for today. Success Rate: %.1f%%",
+        return ResponseEntity.ok(String.format("Assignment complete for today. Success Rate: %.1f%%",
                 result.getSuccessRate()));
     }
+
+//        private final RideEvidenceService service;
+//
+//        @PostMapping("/{rideId}/evidence")
+//        public RideEvidenceDTO create(
+//                @PathVariable Long rideId,
+//                @RequestParam RideEvidenceEventType eventType,
+//                @RequestParam(required = false) String note,
+//                @RequestParam(required = false) Double lat,
+//                @RequestParam(required = false) Double lng,
+//                @RequestPart(required = false) MultipartFile signature,
+//                @RequestPart(required = false) List<MultipartFile> photos
+//        ) {
+//            return service.create(rideId, eventType, note, lat, lng, signature, photos);
+//        }
+//
+//        @GetMapping("/{rideId}/evidence")
+//        public List<RideEvidenceDTO> list(@PathVariable Long rideId) {
+//            return service.listByRide(rideId);
+//        }
+
 }
