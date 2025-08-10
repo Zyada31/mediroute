@@ -6,6 +6,7 @@ package com.mediroute.repository;
 
 import com.mediroute.dto.VehicleTypeEnum;
 import com.mediroute.entity.Driver;
+import com.mediroute.entity.Patient;
 import com.mediroute.repository.base.BaseRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -109,7 +110,8 @@ public interface DriverRepository extends BaseRepository<Driver, Long> {
                                          @Param("wheelchairAccessible") Boolean wheelchairAccessible,
                                          @Param("stretcherCapable") Boolean stretcherCapable,
                                          @Param("trainingComplete") Boolean trainingComplete);
-
+    @Query("SELECT p FROM Patient p LEFT JOIN FETCH p.rides WHERE p.id = :id")
+    Optional<Patient> findByIdWithRides(@Param("id") Long id);
     // ========== REMOVED PROBLEMATIC QUERY ==========
     // The findDriverWithTodaysRides query caused issues because:
     // 1. Driver entity doesn't have proper pickupRides/dropoffRides mappings

@@ -2,7 +2,6 @@ package com.mediroute.service.ride;
 
 import com.mediroute.dto.*;
 import com.mediroute.entity.Ride;
-import com.mediroute.exceptions.RideNotFoundException;
 import com.mediroute.repository.RideRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -22,9 +21,6 @@ import java.util.stream.Collectors;
 public class RideService {
 
     private final RideRepository rideRepository;
-
-    // ========== SAFE LAZY LOADING METHODS ==========
-
     public Optional<Ride> findById(Long id) {
         return rideRepository.findByIdWithFullDetails(id);
     }
@@ -129,4 +125,34 @@ public class RideService {
                 .assignmentRate(totalRides > 0 ? (assignedRides * 100.0 / totalRides) : 0.0)
                 .build();
     }
+//    private final StoragePort storage; // S3/local adapter
+//    private final RideEvidenceRepo repo;
+//    private final AuthContext auth; // to get driverId
+//
+//    public RideEvidenceDTO create(Long rideId, RideEvidenceEventType type, String note,
+//                                  Double lat, Double lng,
+//                                  MultipartFile signature, List<MultipartFile> photos) {
+//        if ((type == RideEvidenceEventType.NO_SHOW || type == RideEvidenceEventType.CANCELLED)
+//                && (note == null || note.isBlank())) {
+//            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "note required for NO_SHOW/CANCELLED");
+//        }
+//
+//        String sigUrl = signature != null && !signature.isEmpty()
+//                ? storage.put(signature, "evidence/signature/") : null;
+//
+//        List<String> photoUrls = Optional.ofNullable(photos).orElse(List.of()).stream()
+//                .filter(p -> p != null && !p.isEmpty())
+//                .limit(3)
+//                .map(p -> storage.put(p, "evidence/photo/"))
+//                .toList();
+//
+//        var entity = repo.save(RideEvidenceEntity.from(rideId, type, note, lat, lng, sigUrl, photoUrls, auth.driverId()));
+//        // (optional) auto-advance status on DROPOFF or set NO_SHOW/CANCELLED here.
+//
+//        return entity.toDto();
+//    }
+//
+//    public List<RideEvidenceDTO> listByRide(Long rideId) { return repo.findAllByRideId(rideId).stream().map(RideEvidenceEntity::toDto).toList(); }
 }
+
+

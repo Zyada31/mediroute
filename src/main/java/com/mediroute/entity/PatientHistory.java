@@ -6,6 +6,8 @@ import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
+import lombok.ToString;
+import lombok.EqualsAndHashCode;
 import org.springframework.data.annotation.CreatedDate;
 import org.springframework.data.jpa.domain.support.AuditingEntityListener;
 import io.swagger.v3.oas.annotations.media.Schema;
@@ -23,6 +25,8 @@ import java.time.LocalDateTime;
 @AllArgsConstructor
 @Builder
 @EntityListeners(AuditingEntityListener.class)
+@ToString(exclude = {"patient", "ride"}) // Prevent circular references
+@EqualsAndHashCode(exclude = {"patient", "ride"})
 @Schema(description = "Historical record of patient rides")
 public class PatientHistory {
 
@@ -97,10 +101,10 @@ public class PatientHistory {
     @Schema(description = "Patient satisfaction score (1-5)")
     private Integer patientSatisfaction;
 
-    // Notes
-    @Column(name = "notes", columnDefinition = "TEXT")
+    // History Notes - Use unique column name
+    @Column(name = "history_notes", columnDefinition = "TEXT")
     @Schema(description = "Additional notes about the ride")
-    private String notes;
+    private String historyNotes;
 
     @CreatedDate
     @Column(name = "created_at", updatable = false)

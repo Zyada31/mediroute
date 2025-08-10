@@ -1,13 +1,14 @@
 package com.mediroute.entity;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
-import com.mediroute.dto.Location;
 import com.mediroute.dto.MobilityLevel;
 import jakarta.persistence.*;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
+import lombok.ToString;
+import lombok.EqualsAndHashCode;
 import org.hibernate.annotations.BatchSize;
 import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
@@ -33,6 +34,8 @@ import java.util.Map;
 @AllArgsConstructor
 @Builder
 @EntityListeners(AuditingEntityListener.class)
+@ToString(exclude = {"rides", "history"}) // Prevent circular references
+@EqualsAndHashCode(exclude = {"rides", "history"}) // Prevent circular references
 public class Patient {
 
     @Id
@@ -54,22 +57,23 @@ public class Patient {
     @Column(name = "emergency_contact_phone")
     private String emergencyContactPhone;
 
-    // Default Locations
+    // Default Pickup Location - Using embedded Location
     @Embedded
     @AttributeOverrides({
             @AttributeOverride(name = "address", column = @Column(name = "default_pickup_address")),
             @AttributeOverride(name = "latitude", column = @Column(name = "default_pickup_lat")),
             @AttributeOverride(name = "longitude", column = @Column(name = "default_pickup_lng"))
     })
-    private com.mediroute.dto.Location defaultPickupLocation;
+    private com.mediroute.entity.embeddable.Location defaultPickupLocation;
 
+    // Default Dropoff Location - Using embedded Location
     @Embedded
     @AttributeOverrides({
             @AttributeOverride(name = "address", column = @Column(name = "default_dropoff_address")),
             @AttributeOverride(name = "latitude", column = @Column(name = "default_dropoff_lat")),
             @AttributeOverride(name = "longitude", column = @Column(name = "default_dropoff_lng"))
     })
-    private Location defaultDropoffLocation;
+    private com.mediroute.entity.embeddable.Location defaultDropoffLocation;
 
     // Medical Requirements
     @Column(name = "requires_wheelchair", columnDefinition = "BOOLEAN DEFAULT FALSE")
@@ -107,10 +111,15 @@ public class Patient {
     @Column(name = "date_of_birth")
     private LocalDate dateOfBirth;
 
+    // Special Needs - Store as JSONB
     @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "special_needs", columnDefinition = "jsonb")
     @Builder.Default
     private Map<String, Object> specialNeeds = new HashMap<>();
+
+    // Patient Notes - SEPARATE FIELD (not conflicting with special_needs)
+    @Column(name = "patient_notes", columnDefinition = "TEXT")
+    private String patientNotes;
 
     @Column(name = "is_active", columnDefinition = "BOOLEAN DEFAULT TRUE")
     @Builder.Default
@@ -124,9 +133,9 @@ public class Patient {
     @Column(name = "updated_at")
     private LocalDateTime updatedAt;
 
-    // FIXED: Lazy loading relationship
+    // Relationships - LAZY loading with proper configuration
     @OneToMany(mappedBy = "patient", cascade = CascadeType.ALL, fetch = FetchType.LAZY)
-    @JsonIgnore  // PREVENT JSON serialization issues
+    @JsonIgnore  // Prevent JSON serialization issues
     @BatchSize(size = 10)  // Optimize batch loading
     @Builder.Default
     private List<Ride> rides = new ArrayList<>();
@@ -137,7 +146,8 @@ public class Patient {
     @Builder.Default
     private List<PatientHistory> history = new ArrayList<>();
 
-    // Business Methods
+    // ========== Business Methods ==========
+
     public void addMedicalCondition(String condition) {
         if (this.medicalConditions == null) {
             this.medicalConditions = new ArrayList<>();
@@ -165,5 +175,38 @@ public class Patient {
         return Boolean.TRUE.equals(requiresWheelchair) ||
                 Boolean.TRUE.equals(requiresStretcher) ||
                 Boolean.TRUE.equals(requiresOxygen);
+    }
+
+    public String getRequiredVehicleType() {
+        if (Boolean.TRUE.equals(requiresStretcher)) {
+            return "STRETCHER_VAN";
+        }
+        if (Boolean.TRUE.equals(requiresWheelchair)) {
+            return "WHEELCHAIR_VAN";
+        }
+        if (Boolean.TRUE.equals(requiresOxygen)) {
+            return "WHEELCHAIR_VAN";
+        }
+        return "SEDAN";
+    }
+
+    // Helper method to get notes from special needs if stored there
+    public String getNotes() {
+        if (patientNotes != null && !patientNotes.isEmpty()) {
+            return patientNotes;
+        }
+        // Check if notes exist in special needs for backward compatibility
+        if (specialNeeds != null && specialNeeds.containsKey("notes")) {
+            return String.valueOf(specialNeeds.get("notes"));
+        }
+        return null;
+    }
+
+    public void setNotes(String notes) {
+        this.patientNotes = notes;
+        // Also store in special needs for backward compatibility if needed
+        if (notes != null && !notes.isEmpty()) {
+            addSpecialNeed("notes", notes);
+        }
     }
 }

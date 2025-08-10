@@ -28,10 +28,10 @@ public class AssignmentSummaryService {
                 .filter(ride -> ride.getPickupDriver() != null || ride.getDropoffDriver() != null)
                 .toList();
 
-        if (assignedRides.isEmpty()) {
-            log.info("No assigned rides found between {} and {}", dayStart, dayEnd);
-            return new ArrayList<>();
-        }
+//        if (assignedRides.isEmpty()) {
+//            log.info("No assigned rides found between {} and {}", dayStart, dayEnd);
+//            return new ArrayList<>();
+//        }
 
         // Group by pickup driver (primary assignment)
         Map<Long, List<Ride>> ridesByDriver = assignedRides.stream()

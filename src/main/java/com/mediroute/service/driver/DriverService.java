@@ -2,8 +2,7 @@
 package com.mediroute.service.driver;
 
 import com.mediroute.dto.DriverDTO;
-import com.mediroute.dto.DriverDetailDTO;
-import com.mediroute.dto.DriverStatistics;
+import com.mediroute.dto.DriverStatisticsDTO;
 import com.mediroute.dto.VehicleTypeEnum;
 import com.mediroute.entity.Driver;
 import com.mediroute.entity.Patient;
@@ -137,7 +136,7 @@ public class DriverService {
     private void updateDriverMedicalCapabilities(Driver driver, DriverDTO dto) {
         if (dto.getVehicleType() != null) {
             try {
-                VehicleTypeEnum vehicleType = VehicleTypeEnum.valueOf(dto.getVehicleType().toUpperCase());
+                VehicleTypeEnum vehicleType = VehicleTypeEnum.valueOf(dto.getVehicleType().name().toUpperCase());
                 driver.setVehicleType(vehicleType);
 
                 switch (vehicleType) {
@@ -188,7 +187,7 @@ public class DriverService {
         }
 
         Boolean trainingComplete = dto.getIsTrainingComplete() != null ?
-                dto.getIsTrainingComplete() : dto.getTrainingComplete();
+                dto.getIsTrainingComplete() : dto.getIsTrainingComplete();
         if (trainingComplete != null) {
             driver.setIsTrainingComplete(trainingComplete);
         }
@@ -215,18 +214,18 @@ public class DriverService {
     private void updateDriverScheduling(Driver driver, DriverDTO dto) {
         if (dto.getShiftStart() != null) {
             // Handle both LocalDateTime and LocalTime cases
-            if (dto.getShiftStart() instanceof LocalDateTime) {
-                driver.setShiftStart(((LocalDateTime) dto.getShiftStart()).toLocalTime());
+            if (dto.getShiftStart() instanceof LocalTime) {
+                driver.setShiftStart((dto.getShiftStart()));
             } else {
                 // Assume it's already LocalTime or can be converted
-                driver.setShiftStart(dto.getShiftStart().toLocalTime());
+                driver.setShiftStart(dto.getShiftStart());
             }
         }
         if (dto.getShiftEnd() != null) {
-            if (dto.getShiftEnd() instanceof LocalDateTime) {
-                driver.setShiftEnd(((LocalDateTime) dto.getShiftEnd()).toLocalTime());
+            if (dto.getShiftEnd() instanceof LocalTime) {
+                driver.setShiftEnd((dto.getShiftEnd()));
             } else {
-                driver.setShiftEnd(dto.getShiftEnd().toLocalTime());
+                driver.setShiftEnd(dto.getShiftEnd());
             }
         }
         if (dto.getMaxDailyRides() != null) {
@@ -284,28 +283,28 @@ public class DriverService {
 //                .map(driver -> getDriverWorkload(driver.getId(), date))
 //                .collect(Collectors.toList());
 //    }
-    public List<DriverDetailDTO> getAllDriversAsDTO() {
+    public List<DriverDTO> getAllDriversAsDTO() {
         return driverRepository.findAll().stream()
                 .map(driver -> {
                     // Force initialization while in transaction
                     Hibernate.initialize(driver.getCertifications());
                     Hibernate.initialize(driver.getSkills());
-                    return DriverDetailDTO.fromEntity(driver);
+                    return DriverDTO.fromEntity(driver);
                 })
                 .collect(Collectors.toList());
     }
 
     @Transactional(readOnly = true)
-    public DriverStatistics getDriverStats() {
+    public DriverStatisticsDTO getDriverStats() {
         List<Driver> activeDrivers = driverRepository.findByActiveTrue();
 
-        return DriverStatistics.builder()
-                .activeDrivers((long) activeDrivers.size())
-                .wheelchairCapableDrivers((int) activeDrivers.stream()
+        return DriverStatisticsDTO.builder()
+                .totalActiveDrivers((long) activeDrivers.size())
+                .wheelchairAccessibleCount((int) activeDrivers.stream()
                         .filter(d -> Boolean.TRUE.equals(d.getWheelchairAccessible())).count())
-                .stretcherCapableDrivers((int) activeDrivers.stream()
+                .stretcherCapableCount((int) activeDrivers.stream()
                         .filter(d -> Boolean.TRUE.equals(d.getStretcherCapable())).count())
-                .oxygenEquippedDrivers((int) activeDrivers.stream()
+                .oxygenEquippedCount((int) activeDrivers.stream()
                         .filter(d -> Boolean.TRUE.equals(d.getOxygenEquipped())).count())
                 .build();
     }
