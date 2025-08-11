@@ -11,6 +11,7 @@ import com.mediroute.repository.RideRepository;
 import com.mediroute.service.distance.OsrmDistanceService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.hibernate.Hibernate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -23,7 +24,6 @@ import java.util.stream.Collectors;
 @Slf4j
 @Service
 @RequiredArgsConstructor
-@Transactional
 public class EnhancedMedicalTransportOptimizer {
 
     private final RideRepository rideRepository;
@@ -34,38 +34,117 @@ public class EnhancedMedicalTransportOptimizer {
     // Medical transport constants
     private static final int SHORT_APPOINTMENT_THRESHOLD = 15;
     private static final int OPTIMIZATION_TIMEOUT_SECONDS = 45;
+    private static final double EARTH_RADIUS_KM = 6371.0;
+    private static final double MAX_PICKUP_DISTANCE_KM = 50.0;
+    private static final double PREFERRED_PICKUP_DISTANCE_KM = 15.0;
 
     /**
-     * Main optimization entry point for medical transport
+     * Main optimization entry point
      */
+    @Transactional
     public OptimizationResult optimizeSchedule(List<Ride> rides) {
         if (rides == null || rides.isEmpty()) {
             log.warn("⚠️ No rides to optimize");
             return OptimizationResult.empty();
         }
 
+        // CRITICAL: Ensure all entities are initialized within transaction
+        List<Ride> fullyLoadedRides = initializeRideEntities(rides);
         List<Driver> availableDrivers = getQualifiedDrivers();
+
         if (availableDrivers.isEmpty()) {
             log.warn("⚠️ No qualified drivers available for medical transport");
-            return OptimizationResult.empty();
+            return createUnassignedResult(fullyLoadedRides, "No qualified drivers available");
         }
 
         String batchId = generateBatchId();
         log.info("🏥 Starting enhanced medical transport optimization for {} rides with {} drivers (Batch: {})",
-                rides.size(), availableDrivers.size(), batchId);
+                fullyLoadedRides.size(), availableDrivers.size(), batchId);
 
         try {
-            return performMedicalTransportOptimization(rides, availableDrivers, batchId);
+            return performMedicalTransportOptimization(fullyLoadedRides, availableDrivers, batchId);
         } catch (Exception e) {
             log.error("❌ Enhanced optimization failed: {}", e.getMessage(), e);
-            return performIntelligentFallback(rides, availableDrivers, batchId);
+            return performIntelligentFallback(fullyLoadedRides, availableDrivers, batchId);
+        }
+    }
+
+    /**
+     * CRITICAL: Initialize all lazy-loaded entities within transaction
+     */
+    @Transactional(readOnly = true)
+    public List<Ride> initializeRideEntities(List<Ride> rides) {
+        List<Long> rideIds = rides.stream()
+                .map(Ride::getId)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toList());
+
+        if (rideIds.isEmpty()) {
+            // For new rides that don't have IDs yet, return as-is but initialize patients
+            return rides.stream()
+                    .peek(this::initializeRidePatient)
+                    .collect(Collectors.toList());
+        }
+
+        // Load rides with all associations using JOIN FETCH
+        List<Ride> fullyLoadedRides = rideRepository.findByIdInWithPatient(rideIds);
+
+        // Force initialization of all lazy properties
+        fullyLoadedRides.forEach(this::initializeRidePatient);
+
+        return fullyLoadedRides;
+    }
+
+    /**
+     * Initialize patient and driver entities to prevent lazy loading issues
+     */
+    private void initializeRidePatient(Ride ride) {
+        try {
+            if (ride.getPatient() != null) {
+                // Force initialization of patient properties
+                Hibernate.initialize(ride.getPatient());
+                Patient patient = ride.getPatient();
+
+                // Access key properties to fully initialize
+                patient.getName();
+                patient.getRequiresWheelchair();
+                patient.getRequiresStretcher();
+                patient.getRequiresOxygen();
+                patient.getMobilityLevel();
+
+                // Initialize collections if they exist
+                if (patient.getMedicalConditions() != null) {
+                    Hibernate.initialize(patient.getMedicalConditions());
+                }
+                if (patient.getSpecialNeeds() != null) {
+                    Hibernate.initialize(patient.getSpecialNeeds());
+                }
+            }
+
+            // Initialize drivers if already assigned
+            if (ride.getPickupDriver() != null) {
+                Hibernate.initialize(ride.getPickupDriver());
+                ride.getPickupDriver().getName(); // Force access
+            }
+            if (ride.getDropoffDriver() != null) {
+                Hibernate.initialize(ride.getDropoffDriver());
+                ride.getDropoffDriver().getName(); // Force access
+            }
+            if (ride.getDriver() != null) {
+                Hibernate.initialize(ride.getDriver());
+                ride.getDriver().getName(); // Force access
+            }
+
+        } catch (Exception e) {
+            log.warn("Failed to initialize ride {} entities: {}", ride.getId(), e.getMessage());
         }
     }
 
     /**
      * Core medical transport optimization using intelligent fallback algorithm
      */
-    private OptimizationResult performMedicalTransportOptimization(List<Ride> rides, List<Driver> drivers, String batchId) {
+    @Transactional
+    public OptimizationResult performMedicalTransportOptimization(List<Ride> rides, List<Driver> drivers, String batchId) {
         RideCategorization categorization = categorizeRides(rides);
         OptimizationResult totalResult = OptimizationResult.create(batchId, rides.size());
 
@@ -92,23 +171,29 @@ public class EnhancedMedicalTransportOptimizer {
     }
 
     /**
-     * Categorize rides by medical requirements, appointment type, and priority
+     * Safe categorization that handles potential null patients
      */
     private RideCategorization categorizeRides(List<Ride> rides) {
         RideCategorization categorization = new RideCategorization();
 
         for (Ride ride : rides) {
-            if (ride.getPriority() == Priority.EMERGENCY) {
-                categorization.addEmergencyRide(ride);
-                continue;
-            }
+            try {
+                if (ride.getPriority() == Priority.EMERGENCY) {
+                    categorization.addEmergencyRide(ride);
+                    continue;
+                }
 
-            String requiredVehicleType = determineRequiredVehicleType(ride);
+                String requiredVehicleType = determineRequiredVehicleType(ride);
 
-            if (isRoundTripRide(ride)) {
-                categorization.addRoundTripRide(requiredVehicleType, ride);
-            } else {
-                categorization.addOneWayRide(requiredVehicleType, ride);
+                if (isRoundTripRide(ride)) {
+                    categorization.addRoundTripRide(requiredVehicleType, ride);
+                } else {
+                    categorization.addOneWayRide(requiredVehicleType, ride);
+                }
+            } catch (Exception e) {
+                log.warn("Error categorizing ride {}: {}", ride.getId(), e.getMessage());
+                // Default to one-way sedan if categorization fails
+                categorization.addOneWayRide("sedan", ride);
             }
         }
 
@@ -117,25 +202,103 @@ public class EnhancedMedicalTransportOptimizer {
     }
 
     /**
+     * Safe vehicle type determination with null safety
+     */
+    private String determineRequiredVehicleType(Ride ride) {
+        try {
+            Patient patient = ride.getPatient();
+
+            // First check if ride has explicit vehicle type
+            if (ride.getRequiredVehicleType() != null && !ride.getRequiredVehicleType().isEmpty()) {
+                return ride.getRequiredVehicleType().toLowerCase();
+            }
+
+            // If no patient, default to sedan
+            if (patient == null) {
+                log.debug("Ride {} has no patient, defaulting to sedan", ride.getId());
+                return "sedan";
+            }
+
+            // Check patient medical requirements safely
+            if (Boolean.TRUE.equals(patient.getRequiresStretcher()) ||
+                    patient.getMobilityLevel() == MobilityLevel.STRETCHER) {
+                return "stretcher_van";
+            }
+            if (Boolean.TRUE.equals(patient.getRequiresWheelchair()) ||
+                    patient.getMobilityLevel() == MobilityLevel.WHEELCHAIR) {
+                return "wheelchair_van";
+            }
+            if (Boolean.TRUE.equals(patient.getRequiresOxygen())) {
+                return "wheelchair_van"; // Oxygen usually requires wheelchair van
+            }
+
+            return "sedan";
+
+        } catch (Exception e) {
+            log.warn("Error determining vehicle type for ride {}: {}", ride.getId(), e.getMessage());
+            return "sedan"; // Safe default
+        }
+    }
+
+    /**
+     * Safe patient capability checking with null safety
+     */
+    private boolean canDriverHandlePatient(Driver driver, Patient patient) {
+        try {
+            if (patient == null) return true;
+
+            // Check each requirement safely
+            if (Boolean.TRUE.equals(patient.getRequiresWheelchair()) &&
+                    !Boolean.TRUE.equals(driver.getWheelchairAccessible())) {
+                return false;
+            }
+
+            if (Boolean.TRUE.equals(patient.getRequiresStretcher()) &&
+                    !Boolean.TRUE.equals(driver.getStretcherCapable())) {
+                return false;
+            }
+
+            if (Boolean.TRUE.equals(patient.getRequiresOxygen()) &&
+                    !Boolean.TRUE.equals(driver.getOxygenEquipped())) {
+                return false;
+            }
+
+            return true;
+
+        } catch (Exception e) {
+            log.warn("Error checking driver-patient compatibility: {}", e.getMessage());
+            return false; // Err on the side of caution
+        }
+    }
+
+    /**
      * Optimize emergency rides with highest priority
      */
-    private OptimizationResult optimizeEmergencyRides(List<Ride> emergencyRides, List<Driver> drivers, String batchId) {
+    @Transactional
+    public OptimizationResult optimizeEmergencyRides(List<Ride> emergencyRides, List<Driver> drivers, String batchId) {
         if (emergencyRides.isEmpty()) {
             return OptimizationResult.empty();
         }
 
         log.info("🚨 Optimizing {} EMERGENCY rides first", emergencyRides.size());
         OptimizationResult result = new OptimizationResult();
+        result.setBatchId(batchId);
+        result.setTotalRides(emergencyRides.size());
 
         for (Ride ride : emergencyRides) {
-            Driver bestDriver = findBestEmergencyDriver(ride, drivers);
-            if (bestDriver != null) {
-                assignRideToDriver(ride, bestDriver, bestDriver, batchId, "EMERGENCY_ASSIGNMENT");
-                result.addAssignedRide(bestDriver.getId(), ride.getId());
-                log.info("🚨 Emergency ride {} assigned to driver {}", ride.getId(), bestDriver.getName());
-            } else {
-                log.warn("❌ No qualified driver found for emergency ride {}", ride.getId());
-                result.addUnassignedRide(ride.getId(), "No qualified emergency driver available");
+            try {
+                Driver bestDriver = findBestEmergencyDriver(ride, drivers);
+                if (bestDriver != null) {
+                    assignRideToDriver(ride, bestDriver, bestDriver, batchId, "EMERGENCY_ASSIGNMENT");
+                    result.addAssignedRide(bestDriver.getId(), ride.getId());
+                    log.info("🚨 Emergency ride {} assigned to driver {}", ride.getId(), bestDriver.getName());
+                } else {
+                    log.warn("❌ No qualified driver found for emergency ride {}", ride.getId());
+                    result.addUnassignedRide(ride.getId(), "No qualified emergency driver available");
+                }
+            } catch (Exception e) {
+                log.error("Error assigning emergency ride {}: {}", ride.getId(), e.getMessage());
+                result.addUnassignedRide(ride.getId(), "Error during emergency assignment: " + e.getMessage());
             }
         }
 
@@ -143,8 +306,59 @@ public class EnhancedMedicalTransportOptimizer {
     }
 
     /**
-     * Unified method to optimize rides for a specific vehicle type using intelligent assignment
+     * Intelligent assignment algorithm with proper error handling
      */
+    @Transactional
+    public OptimizationResult performIntelligentAssignment(List<Ride> rides, List<Driver> drivers,
+                                                           String batchId, boolean isRoundTrip) {
+        OptimizationResult result = new OptimizationResult();
+        result.setBatchId(batchId);
+        result.setTotalRides(rides.size());
+
+        // Sort rides by priority and time
+        List<Ride> sortedRides = rides.stream()
+                .sorted(Comparator
+                        .comparing((Ride r) -> r.getPriority() == Priority.EMERGENCY ? 0 :
+                                r.getPriority() == Priority.URGENT ? 1 : 2)
+                        .thenComparing(Ride::getPickupTime))
+                .collect(Collectors.toList());
+
+        for (Ride ride : sortedRides) {
+            try {
+                Driver bestDriver = findBestDriverForRide(ride, drivers);
+
+                if (bestDriver != null) {
+                    if (isRoundTrip) {
+                        assignRideToDriver(ride, bestDriver, bestDriver, batchId, "INTELLIGENT_ROUND_TRIP");
+                    } else {
+                        Driver dropoffDriver = findBestDriverForDropoff(ride, drivers, bestDriver);
+                        assignRideToDriver(ride, bestDriver, dropoffDriver != null ? dropoffDriver : bestDriver,
+                                batchId, "INTELLIGENT_ONE_WAY");
+                    }
+                    result.addAssignedRide(bestDriver.getId(), ride.getId());
+                    log.debug("✅ Ride {} assigned to driver {} ({})", ride.getId(), bestDriver.getName(),
+                            isRoundTrip ? "round-trip" : "one-way");
+                } else {
+                    result.addUnassignedRide(ride.getId(), "No compatible driver available");
+                    log.warn("❌ Could not assign ride {}", ride.getId());
+                }
+            } catch (Exception e) {
+                log.error("Error assigning ride {}: {}", ride.getId(), e.getMessage());
+                result.addUnassignedRide(ride.getId(), "Assignment error: " + e.getMessage());
+            }
+        }
+
+        return result;
+    }
+
+    // ========== HELPER METHODS ==========
+
+    private boolean isRoundTripRide(Ride ride) {
+        return Boolean.TRUE.equals(ride.getIsRoundTrip()) ||
+                (ride.getAppointmentDuration() != null && ride.getAppointmentDuration() <= SHORT_APPOINTMENT_THRESHOLD) ||
+                ride.getRideType() == RideType.ROUND_TRIP;
+    }
+
     private OptimizationResult optimizeRidesForVehicleType(List<Ride> rides, List<Driver> drivers,
                                                            String batchId, boolean isRoundTrip, String vehicleType) {
         if (rides.isEmpty()) {
@@ -163,50 +377,58 @@ public class EnhancedMedicalTransportOptimizer {
         return performIntelligentAssignment(rides, compatibleDrivers, batchId, isRoundTrip);
     }
 
-    /**
-     * Intelligent assignment algorithm (fallback when OR-Tools not available)
-     */
-    private OptimizationResult performIntelligentAssignment(List<Ride> rides, List<Driver> drivers,
-                                                            String batchId, boolean isRoundTrip) {
-        OptimizationResult result = new OptimizationResult();
-
-        // Sort rides by priority and time
-        List<Ride> sortedRides = rides.stream()
-                .sorted(Comparator
-                        .comparing((Ride r) -> r.getPriority() == Priority.EMERGENCY ? 0 :
-                                r.getPriority() == Priority.URGENT ? 1 : 2)
-                        .thenComparing(Ride::getPickupTime))
+    private List<Driver> getDriversForVehicleType(List<Driver> drivers, String vehicleType) {
+        return drivers.stream()
+                .filter(driver -> isDriverCompatibleWithVehicleType(driver, vehicleType))
                 .collect(Collectors.toList());
-
-        for (Ride ride : sortedRides) {
-            Driver bestDriver = findBestDriverForRide(ride, drivers);
-
-            if (bestDriver != null) {
-                if (isRoundTrip) {
-                    assignRideToDriver(ride, bestDriver, bestDriver, batchId, "INTELLIGENT_ROUND_TRIP");
-                } else {
-                    Driver dropoffDriver = findBestDriverForDropoff(ride, drivers, bestDriver);
-                    assignRideToDriver(ride, bestDriver, dropoffDriver != null ? dropoffDriver : bestDriver,
-                            batchId, "INTELLIGENT_ONE_WAY");
-                }
-                result.addAssignedRide(bestDriver.getId(), ride.getId());
-                log.debug("✅ Ride {} assigned to driver {} ({})", ride.getId(), bestDriver.getName(),
-                        isRoundTrip ? "round-trip" : "one-way");
-            } else {
-                result.addUnassignedRide(ride.getId(), "No compatible driver available");
-                log.warn("❌ Could not assign ride {}", ride.getId());
-            }
-        }
-
-        return result;
     }
 
-    // Helper methods for intelligent assignment
+    private boolean isDriverCompatibleWithVehicleType(Driver driver, String vehicleType) {
+        if (vehicleType == null || vehicleType.isEmpty()) return true;
+
+        return switch (vehicleType.toLowerCase()) {
+            case "wheelchair_van" -> Boolean.TRUE.equals(driver.getWheelchairAccessible());
+            case "stretcher_van" -> Boolean.TRUE.equals(driver.getStretcherCapable());
+            case "ambulance" -> Boolean.TRUE.equals(driver.getStretcherCapable()) &&
+                    Boolean.TRUE.equals(driver.getOxygenEquipped());
+            case "van" -> driver.getVehicleType() != null && driver.getVehicleType().name().contains("VAN");
+            case "sedan" -> true;
+            default -> {
+                log.warn("Unknown vehicle type: {}, allowing any driver", vehicleType);
+                yield true;
+            }
+        };
+    }
+
+    @Transactional(readOnly = true)
+    public List<Driver> getQualifiedDrivers() {
+        return driverRepository.findByActiveTrue().stream()
+                .filter(driver -> Boolean.TRUE.equals(driver.getIsTrainingComplete()))
+                .filter(driver -> !isLicenseExpiringSoon(driver))
+                .collect(Collectors.toList());
+    }
+
+    private boolean isLicenseExpiringSoon(Driver driver) {
+        LocalDate thirtyDaysFromNow = LocalDate.now().plusDays(30);
+        return (driver.getDriversLicenseExpiry() != null && driver.getDriversLicenseExpiry().isBefore(thirtyDaysFromNow)) ||
+                (driver.getMedicalTransportLicenseExpiry() != null && driver.getMedicalTransportLicenseExpiry().isBefore(thirtyDaysFromNow)) ||
+                (driver.getInsuranceExpiry() != null && driver.getInsuranceExpiry().isBefore(thirtyDaysFromNow));
+    }
+
+    private Driver findBestEmergencyDriver(Ride ride, List<Driver> drivers) {
+        return drivers.stream()
+                .filter(driver -> canDriverHandlePatient(driver, ride.getPatient()))
+                .filter(driver -> hasRequiredSkills(driver, ride.getRequiredSkills()))
+                .min(Comparator.comparingDouble(driver -> calculateDistanceToPickup(driver, ride)))
+                .orElse(null);
+    }
+
     private Driver findBestDriverForRide(Ride ride, List<Driver> drivers) {
         return drivers.stream()
                 .filter(driver -> canDriverHandlePatient(driver, ride.getPatient()))
                 .filter(driver -> hasRequiredSkills(driver, ride.getRequiredSkills()))
                 .filter(driver -> isDriverAvailableForRide(driver, ride))
+                .filter(driver -> calculateDistanceToPickup(driver, ride) <= MAX_PICKUP_DISTANCE_KM)
                 .min(Comparator.comparingDouble(driver -> calculateDriverScore(driver, ride)))
                 .orElse(null);
     }
@@ -227,13 +449,25 @@ public class EnhancedMedicalTransportOptimizer {
         double distance = calculateDistanceToPickup(driver, ride);
         score += distance * 100; // Weight distance heavily
 
+        // Bonus for being within preferred distance
+        if (distance <= PREFERRED_PICKUP_DISTANCE_KM) {
+            score -= 200;
+        }
+
         // Capability bonus (exact match is better)
         if (hasExactVehicleMatch(driver, ride)) {
             score -= 50;
         }
 
         // Experience bonus
-        score -= driver.getMaxDailyRides() * 5;
+        if (driver.getMaxDailyRides() != null) {
+            score -= driver.getMaxDailyRides() * 5;
+        }
+
+        // Training completion bonus
+        if (Boolean.TRUE.equals(driver.getIsTrainingComplete())) {
+            score -= 25;
+        }
 
         return score;
     }
@@ -261,96 +495,11 @@ public class EnhancedMedicalTransportOptimizer {
     }
 
     private boolean isDriverAvailableForRide(Driver driver, Ride ride) {
-        // Basic availability check - can be enhanced with actual scheduling
         return driver.getActive() && Boolean.TRUE.equals(driver.getIsTrainingComplete());
     }
 
     private boolean isDriverAvailableForDropoff(Driver driver, Ride ride) {
-        // Check if driver is available for dropoff time
         return isDriverAvailableForRide(driver, ride);
-    }
-
-    // Rest of the helper methods remain the same...
-    private String determineRequiredVehicleType(Ride ride) {
-        Patient patient = ride.getPatient();
-        if (patient == null) return "sedan";
-
-        if (ride.getRequiredVehicleType() != null && !ride.getRequiredVehicleType().isEmpty()) {
-            return ride.getRequiredVehicleType();
-        }
-
-        if (Boolean.TRUE.equals(patient.getRequiresStretcher()) ||
-                patient.getMobilityLevel() == MobilityLevel.STRETCHER) {
-            return "stretcher_van";
-        }
-        if (Boolean.TRUE.equals(patient.getRequiresWheelchair()) ||
-                patient.getMobilityLevel() == MobilityLevel.WHEELCHAIR) {
-            return "wheelchair_van";
-        }
-        if (Boolean.TRUE.equals(patient.getRequiresOxygen())) {
-            return "wheelchair_van";
-        }
-
-        return "sedan";
-    }
-
-    private boolean isRoundTripRide(Ride ride) {
-        return Boolean.TRUE.equals(ride.getIsRoundTrip()) ||
-                (ride.getAppointmentDuration() != null && ride.getAppointmentDuration() <= SHORT_APPOINTMENT_THRESHOLD) ||
-                ride.getRideType() == RideType.ROUND_TRIP;
-    }
-
-    private boolean canDriverHandlePatient(Driver driver, Patient patient) {
-        if (patient == null) return true;
-
-        return !(Boolean.TRUE.equals(patient.getRequiresWheelchair()) && !Boolean.TRUE.equals(driver.getWheelchairAccessible())) &&
-                !(Boolean.TRUE.equals(patient.getRequiresStretcher()) && !Boolean.TRUE.equals(driver.getStretcherCapable())) &&
-                !(Boolean.TRUE.equals(patient.getRequiresOxygen()) && !Boolean.TRUE.equals(driver.getOxygenEquipped()));
-    }
-
-    private List<Driver> getDriversForVehicleType(List<Driver> drivers, String vehicleType) {
-        return drivers.stream()
-                .filter(driver -> isDriverCompatibleWithVehicleType(driver, vehicleType))
-                .collect(Collectors.toList());
-    }
-
-    private boolean isDriverCompatibleWithVehicleType(Driver driver, String vehicleType) {
-        if (vehicleType == null || vehicleType.isEmpty()) return true;
-
-        return switch (vehicleType.toLowerCase()) {
-            case "wheelchair_van" -> Boolean.TRUE.equals(driver.getWheelchairAccessible());
-            case "stretcher_van" -> Boolean.TRUE.equals(driver.getStretcherCapable());
-            case "ambulance" -> Boolean.TRUE.equals(driver.getStretcherCapable()) &&
-                    Boolean.TRUE.equals(driver.getOxygenEquipped());
-            case "van" -> driver.getVehicleType().name().contains("VAN");
-            case "sedan" -> true;
-            default -> {
-                log.warn("Unknown vehicle type: {}, allowing any driver", vehicleType);
-                yield true;
-            }
-        };
-    }
-
-    private List<Driver> getQualifiedDrivers() {
-        return driverRepository.findByActiveTrue().stream()
-                .filter(driver -> Boolean.TRUE.equals(driver.getIsTrainingComplete()))
-                .filter(driver -> !isLicenseExpiringSoon(driver))
-                .collect(Collectors.toList());
-    }
-
-    private boolean isLicenseExpiringSoon(Driver driver) {
-        LocalDate thirtyDaysFromNow = LocalDate.now().plusDays(30);
-        return (driver.getDriversLicenseExpiry() != null && driver.getDriversLicenseExpiry().isBefore(thirtyDaysFromNow)) ||
-                (driver.getMedicalTransportLicenseExpiry() != null && driver.getMedicalTransportLicenseExpiry().isBefore(thirtyDaysFromNow)) ||
-                (driver.getInsuranceExpiry() != null && driver.getInsuranceExpiry().isBefore(thirtyDaysFromNow));
-    }
-
-    private Driver findBestEmergencyDriver(Ride ride, List<Driver> drivers) {
-        return drivers.stream()
-                .filter(driver -> canDriverHandlePatient(driver, ride.getPatient()))
-                .filter(driver -> hasRequiredSkills(driver, ride.getRequiredSkills()))
-                .min(Comparator.comparingDouble(driver -> calculateDistanceToPickup(driver, ride)))
-                .orElse(null);
     }
 
     private boolean hasRequiredSkills(Driver driver, List<String> requiredSkills) {
@@ -385,7 +534,7 @@ public class EnhancedMedicalTransportOptimizer {
                 Math.cos(lat1Rad) * Math.cos(lat2Rad) * Math.sin(dlon/2) * Math.sin(dlon/2);
         double c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
 
-        return 6371 * c; // Earth's radius in kilometers
+        return EARTH_RADIUS_KM * c;
     }
 
     private List<Driver> getAvailableDriversAfterAssignment(List<Driver> allDrivers, Set<Long> assignedDriverIds) {
@@ -394,19 +543,35 @@ public class EnhancedMedicalTransportOptimizer {
                 .collect(Collectors.toList());
     }
 
-    private void assignRideToDriver(Ride ride, Driver pickupDriver, Driver dropoffDriver, String batchId, String method) {
+    @Transactional
+    public void assignRideToDriver(Ride ride, Driver pickupDriver, Driver dropoffDriver, String batchId, String method) {
         ride.setPickupDriver(pickupDriver);
         ride.setDropoffDriver(dropoffDriver);
         ride.setDriver(pickupDriver); // Backward compatibility
         updateRideAssignment(ride, batchId, method);
     }
 
-    private void updateRideAssignment(Ride ride, String batchId, String method) {
+    @Transactional
+    public void updateRideAssignment(Ride ride, String batchId, String method) {
         ride.setStatus(RideStatus.ASSIGNED);
         ride.setAssignedAt(LocalDateTime.now());
         ride.setAssignedBy("ENHANCED_MEDICAL_OPTIMIZER");
         ride.setOptimizationBatchId(batchId);
+//        ride.setAssignment(method);
         rideRepository.save(ride);
+    }
+
+    @Transactional
+    public OptimizationResult performIntelligentFallback(List<Ride> rides, List<Driver> drivers, String batchId) {
+        log.warn("⚠️ Running intelligent medical transport fallback for {} rides", rides.size());
+        return performIntelligentAssignment(rides, drivers, batchId, false);
+    }
+
+    private OptimizationResult createUnassignedResult(List<Ride> rides, String reason) {
+        OptimizationResult result = new OptimizationResult();
+        result.setTotalRides(rides.size());
+        rides.forEach(ride -> result.addUnassignedRide(ride.getId(), reason));
+        return result;
     }
 
     private String generateBatchId() {
@@ -414,19 +579,6 @@ public class EnhancedMedicalTransportOptimizer {
                 "_" + UUID.randomUUID().toString().substring(0, 8);
     }
 
-    // Fallback and audit methods remain the same but simplified...
-    private OptimizationResult performIntelligentFallback(List<Ride> rides, List<Driver> drivers, String batchId) {
-        log.warn("⚠️ Running intelligent medical transport fallback for {} rides", rides.size());
-        return performIntelligentAssignment(rides, drivers, batchId, false);
-    }
-
-    private OptimizationResult createUnassignedResult(List<Ride> rides, String reason) {
-        OptimizationResult result = new OptimizationResult();
-        rides.forEach(ride -> result.addUnassignedRide(ride.getId(), reason));
-        return result;
-    }
-
-    // Logging methods
     private void logCategorizationResults(RideCategorization categorization) {
         log.info("📊 Ride categorization complete:");
         log.info("   🚨 Emergency: {}", categorization.getEmergencyRides().size());
@@ -441,8 +593,9 @@ public class EnhancedMedicalTransportOptimizer {
                 batchId, result.getSuccessRate(), result.getAssignedRideCount(), totalRides);
     }
 
-    private void createDetailedAuditRecord(List<Ride> rides, OptimizationResult result,
-                                           RideCategorization categorization, String batchId) {
+    @Transactional
+    public void createDetailedAuditRecord(List<Ride> rides, OptimizationResult result,
+                                          RideCategorization categorization, String batchId) {
         try {
             AssignmentAudit audit = new AssignmentAudit();
             audit.setAssignmentTime(LocalDateTime.now());
@@ -451,7 +604,7 @@ public class EnhancedMedicalTransportOptimizer {
             audit.setTotalRides(rides.size());
             audit.setAssignedRides(result.getAssignedRideCount());
             audit.setUnassignedRides(rides.size() - result.getAssignedRideCount());
-            audit.setAssignedDrivers(result.getAssignedDriverCount());
+//            audit.setAssignedDriverCount(result.getAssignedDriverCount());
             audit.setSuccessRate(result.getSuccessRate());
             audit.setTriggeredBy("ENHANCED_MEDICAL_OPTIMIZER");
             audit.setOptimizationStrategy("Intelligent fallback algorithm with medical transport constraints");
@@ -472,7 +625,7 @@ public class EnhancedMedicalTransportOptimizer {
         }
     }
 
-    // Supporting Classes (simplified versions)
+    // Supporting Classes
     public static class OptimizationResult {
         private String batchId;
         private int totalRides;
@@ -572,6 +725,5 @@ public class EnhancedMedicalTransportOptimizer {
         public List<Ride> getEmergencyRides() { return emergencyRides; }
         public Map<String, List<Ride>> getRoundTripRidesByVehicleType() { return roundTripRidesByVehicleType; }
         public Map<String, List<Ride>> getOneWayRidesByVehicleType() { return oneWayRidesByVehicleType; }
-
     }
 }

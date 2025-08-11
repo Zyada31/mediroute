@@ -1,4 +1,4 @@
-// 3. Updated UnifiedController to work with your existing services
+// Updated UnifiedController with proper optimization integration
 package com.mediroute.controller;
 
 import com.mediroute.dto.*;
@@ -14,7 +14,7 @@ import com.mediroute.service.assigment.AssignmentSummaryService;
 import com.mediroute.service.driver.DriverService;
 import com.mediroute.service.parser.ExcelParserService;
 import com.mediroute.service.ride.RideService;
-import com.mediroute.service.ride.EnhancedMedicalTransportOptimizer;
+import com.mediroute.service.ride.OptimizationIntegrationService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
@@ -51,7 +51,7 @@ public class UnifiedController {
     private final AssignmentAuditRepository assignmentAuditRepository;
     private final DriverService driverService;
     private final AssignmentSummaryService summaryService;
-    private final EnhancedMedicalTransportOptimizer medicalTransportOptimizer;
+    private final OptimizationIntegrationService optimizationService; // Use integration service
 
     // ========== Enhanced File Upload Endpoints ==========
 
@@ -103,6 +103,295 @@ public class UnifiedController {
         return ResponseEntity.ok(result);
     }
 
+    // ========== Enhanced Optimization Endpoints ==========
+
+    @Operation(summary = "Optimize rides for date", description = "Run optimization on all unassigned rides for a specific date")
+    @PostMapping("/optimization/date/{date}")
+    public ResponseEntity<OptimizationResult> optimizeForDate(
+            @Parameter(description = "Date to optimize")
+            @PathVariable @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date) {
+
+        log.info("🔧 Running optimization for date: {}", date);
+
+        try {
+            OptimizationResult result = optimizationService.optimizeRidesForDate(date);
+
+            String message = String.format("Optimization complete for %s. Success Rate: %.1f%%",
+                    date, result.getSuccessRate());
+            log.info(message);
+
+            return ResponseEntity.ok(result);
+
+        } catch (Exception e) {
+            log.error("❌ Optimization failed for date {}: {}", date, e.getMessage(), e);
+
+            OptimizationResult errorResult = OptimizationResult.builder()
+                    .optimizationRan(false)
+                    .optimizationError(e.getMessage())
+                    .totalRides(0)
+                    .successRate(0.0)
+                    .build();
+
+            return ResponseEntity.ok(errorResult);
+        }
+    }
+
+    @Operation(summary = "Optimize specific rides", description = "Run optimization on a list of specific ride IDs")
+    @PostMapping("/optimization/rides")
+    public ResponseEntity<OptimizationResult> optimizeSpecificRides(@RequestBody List<Long> rideIds) {
+        log.info("🔧 Running optimization for {} specific rides", rideIds.size());
+
+        try {
+            OptimizationResult result = optimizationService.optimizeSpecificRides(rideIds);
+
+            String message = String.format("Optimization complete. Success Rate: %.1f%%", result.getSuccessRate());
+            log.info(message);
+
+            return ResponseEntity.ok(result);
+
+        } catch (Exception e) {
+            log.error("❌ Specific ride optimization failed: {}", e.getMessage(), e);
+
+            OptimizationResult errorResult = OptimizationResult.builder()
+                    .optimizationRan(false)
+                    .optimizationError(e.getMessage())
+                    .totalRides(rideIds.size())
+                    .successRate(0.0)
+                    .build();
+
+            return ResponseEntity.ok(errorResult);
+        }
+    }
+
+    @Operation(summary = "Optimize rides in time range", description = "Run optimization on rides within a specific time range")
+    @PostMapping("/optimization/timerange")
+    public ResponseEntity<OptimizationResult> optimizeTimeRange(
+            @Parameter(description = "Start time") @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime startTime,
+            @Parameter(description = "End time") @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime endTime) {
+
+        log.info("🔧 Running optimization for time range: {} to {}", startTime, endTime);
+
+        try {
+            OptimizationResult result = optimizationService.optimizeRidesInTimeRange(startTime, endTime);
+
+            return ResponseEntity.ok(result);
+
+        } catch (Exception e) {
+            log.error("❌ Time range optimization failed: {}", e.getMessage(), e);
+
+            OptimizationResult errorResult = OptimizationResult.builder()
+                    .optimizationRan(false)
+                    .optimizationError(e.getMessage())
+                    .successRate(0.0)
+                    .build();
+
+            return ResponseEntity.ok(errorResult);
+        }
+    }
+
+    // ========== Data Retrieval Endpoints ==========
+
+    @Operation(summary = "Get rides by date", description = "Retrieve all rides for a specific date")
+    @GetMapping("/rides/date/{date}")
+    public ResponseEntity<List<RideDetailDTO>> getRidesByDate(
+            @Parameter(description = "Date in YYYY-MM-DD format")
+            @PathVariable @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date) {
+
+        log.info("📋 Fetching rides for date: {}", date);
+
+        try {
+            List<RideDetailDTO> rides = rideService.findRidesByDate(date);
+            return ResponseEntity.ok(rides);
+        } catch (Exception e) {
+            log.error("Error fetching rides for date {}: {}", date, e.getMessage(), e);
+            return ResponseEntity.ok(List.of()); // Return empty list instead of error
+        }
+    }
+
+    @Operation(summary = "Get unassigned rides", description = "Retrieve unassigned rides for a specific date")
+    @GetMapping("/rides/unassigned")
+    public ResponseEntity<List<RideDetailDTO>> getUnassignedRides(
+            @Parameter(description = "Date to check for unassigned rides")
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date) {
+
+        log.info("📋 Fetching unassigned rides for date: {}", date);
+
+        try {
+            List<RideDetailDTO> rides = rideService.findUnassignedRidesAsDTO(date);
+            return ResponseEntity.ok(rides);
+        } catch (Exception e) {
+            log.error("Error fetching unassigned rides for date {}: {}", date, e.getMessage(), e);
+            return ResponseEntity.ok(List.of());
+        }
+    }
+
+    @Operation(summary = "Get daily assignment summary", description = "Get summary of driver assignments for a date")
+    @GetMapping("/assign/summary")
+    public ResponseEntity<List<DriverRideSummary>> getDailySummary(
+            @Parameter(description = "Date for summary")
+            @RequestParam("date") @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date) {
+
+        try {
+            LocalDateTime start = date.atStartOfDay();
+            LocalDateTime end = start.plusDays(1);
+            return ResponseEntity.ok(summaryService.getSummaryForDate(start, end));
+        } catch (Exception e) {
+            log.error("Error getting daily summary for {}: {}", date, e.getMessage(), e);
+            return ResponseEntity.ok(List.of());
+        }
+    }
+
+    @Operation(summary = "Get qualified drivers", description = "Get drivers qualified for medical transport")
+    @GetMapping("/drivers/qualified")
+    public ResponseEntity<List<Driver>> getQualifiedDrivers() {
+        try {
+            List<Driver> drivers = driverRepository.findByActiveTrueAndIsTrainingCompleteTrue();
+            return ResponseEntity.ok(drivers);
+        } catch (Exception e) {
+            log.error("Error getting qualified drivers: {}", e.getMessage(), e);
+            return ResponseEntity.ok(List.of());
+        }
+    }
+
+    // ========== Audit and History Endpoints ==========
+
+    @Operation(summary = "Get ride audit history", description = "Retrieve audit trail for a specific ride")
+    @GetMapping("/rides/{rideId}/audit")
+    public ResponseEntity<List<RideAudit>> getAuditLogsByRide(
+            @Parameter(description = "Ride ID") @PathVariable Long rideId) {
+        try {
+            return ResponseEntity.ok(rideAuditRepository.findByRideIdOrderByChangedAtDesc(rideId));
+        } catch (Exception e) {
+            log.error("Error getting audit logs for ride {}: {}", rideId, e.getMessage(), e);
+            return ResponseEntity.ok(List.of());
+        }
+    }
+
+    @Operation(summary = "Get assignment audit logs", description = "Retrieve assignment audit records")
+    @GetMapping("/assignment/audit")
+    public ResponseEntity<List<AssignmentAudit>> getAuditLogs(
+            @Parameter(description = "Start date for audit records")
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate startDate,
+            @Parameter(description = "End date for audit records")
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate endDate) {
+
+        try {
+            if (startDate != null && endDate != null) {
+                return ResponseEntity.ok(
+                        assignmentAuditRepository.findByAssignmentDateBetweenOrderByAssignmentDateDesc(startDate, endDate));
+            }
+
+            return ResponseEntity.ok(
+                    assignmentAuditRepository.findAll(Sort.by(Sort.Direction.DESC, "assignmentTime")));
+        } catch (Exception e) {
+            log.error("Error getting assignment audit logs: {}", e.getMessage(), e);
+            return ResponseEntity.ok(List.of());
+        }
+    }
+
+    @Operation(summary = "Get optimization by batch ID", description = "Get optimization results by batch identifier")
+    @GetMapping("/assignment/audit/{batchId}")
+    public ResponseEntity<AssignmentAudit> getOptimizationByBatchId(
+            @Parameter(description = "Optimization batch ID") @PathVariable String batchId) {
+
+        try {
+            return assignmentAuditRepository.findByBatchId(batchId)
+                    .map(audit -> ResponseEntity.ok(audit))
+                    .orElse(ResponseEntity.notFound().build());
+        } catch (Exception e) {
+            log.error("Error getting optimization by batch ID {}: {}", batchId, e.getMessage(), e);
+            return ResponseEntity.notFound().build();
+        }
+    }
+
+    // ========== Statistics Endpoints ==========
+
+    @Operation(summary = "Get ride statistics", description = "Get statistical summary for rides on a specific date")
+    @GetMapping("/statistics/rides")
+    public ResponseEntity<RideStatisticsDTO> getRideStatisticsDTO(
+            @Parameter(description = "Date for statistics")
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date) {
+
+        try {
+            RideStatisticsDTO stats = rideService.getRideStatistics(date);
+            return ResponseEntity.ok(stats);
+        } catch (Exception e) {
+            log.error("Error getting ride statistics for {}: {}", date, e.getMessage(), e);
+
+            // Return empty stats instead of error
+            RideStatisticsDTO emptyStats = RideStatisticsDTO.builder()
+                    .date(date)
+                    .totalRides(0)
+                    .assignedRides(0)
+                    .unassignedRides(0)
+                    .assignmentRate(0.0)
+                    .build();
+            return ResponseEntity.ok(emptyStats);
+        }
+    }
+
+    @Operation(summary = "Get driver statistics", description = "Get statistical summary of drivers")
+    @GetMapping("/statistics/drivers")
+    public ResponseEntity<DriverStatisticsDTO> getDriverStatistics() {
+        try {
+            DriverStatisticsDTO stats = driverService.getDriverStats();
+            return ResponseEntity.ok(stats);
+        } catch (Exception e) {
+            log.error("Error getting driver statistics: {}", e.getMessage(), e);
+
+            // Return empty stats
+            DriverStatisticsDTO emptyStats = DriverStatisticsDTO.builder()
+                    .totalActiveDrivers(0L)
+                    .wheelchairAccessibleCount(0)
+                    .stretcherCapableCount(0)
+                    .oxygenEquippedCount(0)
+                    .build();
+            return ResponseEntity.ok(emptyStats);
+        }
+    }
+
+    @Operation(summary = "Get optimization statistics", description = "Get optimization performance statistics")
+    @GetMapping("/statistics/optimization")
+    public ResponseEntity<OptimizationIntegrationService.OptimizationStats> getOptimizationStatistics(
+            @Parameter(description = "Date for optimization statistics")
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date) {
+
+        try {
+            OptimizationIntegrationService.OptimizationStats stats = optimizationService.getOptimizationStats(date);
+            return ResponseEntity.ok(stats);
+        } catch (Exception e) {
+            log.error("Error getting optimization statistics for {}: {}", date, e.getMessage(), e);
+
+            // Return empty stats
+            OptimizationIntegrationService.OptimizationStats emptyStats =
+                    OptimizationIntegrationService.OptimizationStats.builder()
+                            .date(date)
+                            .totalRides(0)
+                            .assignedRides(0)
+                            .unassignedRides(0)
+                            .assignmentRate(0.0)
+                            .build();
+            return ResponseEntity.ok(emptyStats);
+        }
+    }
+
+    // ========== Legacy Assignment Method ==========
+
+    @Operation(summary = "Legacy assign today", description = "Legacy endpoint for today's ride assignment")
+    @PostMapping("/assign/today")
+    public ResponseEntity<String> assignToday() {
+        try {
+            LocalDate today = LocalDate.now();
+            OptimizationResult result = optimizationService.optimizeRidesForDate(today);
+
+            return ResponseEntity.ok(String.format("Assignment complete for today. Success Rate: %.1f%%",
+                    result.getSuccessRate()));
+        } catch (Exception e) {
+            log.error("Error in legacy assign today: {}", e.getMessage(), e);
+            return ResponseEntity.ok("Assignment failed: " + e.getMessage());
+        }
+    }
+
     // ========== Legacy Endpoints (Backward Compatibility) ==========
 
     @Operation(summary = "Legacy upload endpoint", description = "Legacy endpoint for backward compatibility")
@@ -118,268 +407,26 @@ public class UnifiedController {
 
         log.info("📆 Legacy scheduling for assignmentDate={}", assignmentDate);
 
-        ParseResult result = excelParserService.parseExcelWithMedicalFeatures(file, assignmentDate, true);
+        try {
+            ParseResult result = excelParserService.parseExcelWithMedicalFeatures(file, assignmentDate, true);
 
-        if (result.getRides().isEmpty()) {
-            return ResponseEntity.badRequest().body("No rides parsed from file for " + assignmentDate);
+            if (result.getRides().isEmpty()) {
+                return ResponseEntity.badRequest().body("No rides parsed from file for " + assignmentDate);
+            }
+
+            String message = String.format("Scheduling complete for %s. Rides: %d, Success Rate: %.1f%%",
+                    assignmentDate, result.getSuccessfulRows(), result.getSuccessRate());
+
+            if (result.getOptimizationRan() && result.getOptimizationResult() != null) {
+                message += String.format(", Optimization: %.1f%% assigned",
+                        result.getOptimizationResult().getSuccessRate());
+            }
+
+            return ResponseEntity.ok(message);
+
+        } catch (Exception e) {
+            log.error("Legacy scheduling failed: {}", e.getMessage(), e);
+            return ResponseEntity.ok("Scheduling failed: " + e.getMessage());
         }
-
-        String message = String.format("Scheduling complete for %s. Rides: %d, Success Rate: %.1f%%",
-                assignmentDate, result.getSuccessfulRows(), result.getSuccessRate());
-
-        if (result.getOptimizationRan() && result.getOptimizationResult() != null) {
-            message += String.format(", Optimization: %.1f%% assigned",
-                    result.getOptimizationResult().getSuccessRate());
-        }
-
-        return ResponseEntity.ok(message);
     }
-
-    // ========== Optimization Endpoints ==========
-
-    @Operation(summary = "Optimize rides for date", description = "Run optimization on all unassigned rides for a specific date")
-    @PostMapping("/optimization/date/{date}")
-    public ResponseEntity<String> optimizeForDate(
-            @Parameter(description = "Date to optimize")
-            @PathVariable @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date) {
-
-        log.info(" Running optimization for date: {}", date);
-
-        LocalDateTime start = date.atStartOfDay();
-        LocalDateTime end = date.plusDays(1).atStartOfDay();
-
-        List<Ride> rides = rideRepository.findByPickupTimeBetweenWithDriversAndPatient(start, end).stream()
-                .filter(ride -> ride.getPickupDriver() == null && ride.getDropoffDriver() == null)
-                .toList();
-
-        if (rides.isEmpty()) {
-            return ResponseEntity.ok("No unassigned rides found for " + date);
-        }
-
-        var result = medicalTransportOptimizer.optimizeSchedule(rides);
-
-        String message = String.format("Optimization complete for %s. Processed: %d rides, Success Rate: %.1f%%",
-                date, rides.size(), result.getSuccessRate());
-
-        return ResponseEntity.ok(message);
-    }
-
-    @Operation(summary = "Optimize specific rides", description = "Run optimization on a list of specific ride IDs")
-    @PostMapping("/optimization/rides")
-    public ResponseEntity<String> optimizeSpecificRides(@RequestBody List<Long> rideIds) {
-        log.info(" Running optimization for {} specific rides", rideIds.size());
-
-        List<Ride> rides = rideRepository.findAllById(rideIds);
-
-        if (rides.isEmpty()) {
-            return ResponseEntity.badRequest().body("No valid rides found for the provided IDs");
-        }
-
-        var result = medicalTransportOptimizer.optimizeSchedule(rides);
-
-        String message = String.format("Optimization complete. Processed: %d rides, Success Rate: %.1f%%",
-                rides.size(), result.getSuccessRate());
-
-        return ResponseEntity.ok(message);
-    }
-
-    // ========== Data Retrieval Endpoints ==========
-
-    @Operation(summary = "Get rides by date", description = "Retrieve all rides for a specific date")
-    // Fix both endpoints to use proper JOIN FETCH queries
-    @GetMapping("/rides/date/{date}")
-    public ResponseEntity<List<RideDetailDTO>> getRidesByDate(
-            @Parameter(description = "Date in YYYY-MM-DD format")
-            @PathVariable @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date) {
-
-        log.info("📋 Fetching rides for date: {}", date);
-        List<RideDetailDTO> rides = rideService.findRidesByDate(date);
-        return ResponseEntity.ok(rides);
-    }
-
-    @Operation(summary = "Get unassigned rides", description = "Retrieve unassigned rides for a specific date")
-    @GetMapping("/rides/unassigned")
-    public ResponseEntity<List<Ride>> getUnassignedRides(
-            @Parameter(description = "Date to check for unassigned rides")
-            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date) {
-
-        log.info("📋 Fetching unassigned rides for date: {}", date);
-        LocalDateTime start = date.atStartOfDay();
-        LocalDateTime end = date.plusDays(1).atStartOfDay();
-
-        List<Ride> rides = rideService.findUnassignedRides(date).stream()
-                .filter(ride -> ride.getPickupDriver() == null && ride.getDropoffDriver() == null)
-                .toList();
-        return ResponseEntity.ok(rides);
-    }
-
-    @Operation(summary = "Get daily assignment summary", description = "Get summary of driver assignments for a date")
-    @GetMapping("/assign/summary")
-    public ResponseEntity<List<DriverRideSummary>> getDailySummary(
-            @Parameter(description = "Date for summary")
-            @RequestParam("date") @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date) {
-
-        LocalDateTime start = date.atStartOfDay();
-        LocalDateTime end = start.plusDays(1);
-        return ResponseEntity.ok(summaryService.getSummaryForDate(start, end));
-    }
-
-//    @Operation(summary = "Get active drivers", description = "Retrieve all active drivers")
-//    @GetMapping("/drivers/active")
-//    public ResponseEntity<List<Driver>> getActiveDrivers() {
-//        List<Driver> drivers = driverRepository.findByActiveTrue();
-//        return ResponseEntity.ok(drivers);
-//    }
-
-    @Operation(summary = "Get qualified drivers", description = "Get drivers qualified for medical transport")
-    @GetMapping("/drivers/qualified")
-    public ResponseEntity<List<Driver>> getQualifiedDrivers() {
-        List<Driver> drivers = driverRepository.findByActiveTrueAndIsTrainingCompleteTrue();
-        return ResponseEntity.ok(drivers);
-    }
-
-    // ========== Audit and History Endpoints ==========
-
-    @Operation(summary = "Get ride audit history", description = "Retrieve audit trail for a specific ride")
-    @GetMapping("/rides/{rideId}/audit")
-    public ResponseEntity<List<RideAudit>> getAuditLogsByRide(
-            @Parameter(description = "Ride ID") @PathVariable Long rideId) {
-        return ResponseEntity.ok(rideAuditRepository.findByRideIdOrderByChangedAtDesc(rideId));
-    }
-
-    @Operation(summary = "Get assignment audit logs", description = "Retrieve assignment audit records")
-    @GetMapping("/assignment/audit")
-    public ResponseEntity<List<AssignmentAudit>> getAuditLogs(
-            @Parameter(description = "Start date for audit records")
-            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate startDate,
-            @Parameter(description = "End date for audit records")
-            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate endDate) {
-
-        if (startDate != null && endDate != null) {
-            return ResponseEntity.ok(
-                    assignmentAuditRepository.findByAssignmentDateBetweenOrderByAssignmentDateDesc(startDate, endDate));
-        }
-
-        return ResponseEntity.ok(
-                assignmentAuditRepository.findAll(Sort.by(Sort.Direction.DESC, "assignmentTime")));
-    }
-
-    @Operation(summary = "Get optimization by batch ID", description = "Get optimization results by batch identifier")
-    @GetMapping("/assignment/audit/{batchId}")
-    public ResponseEntity<AssignmentAudit> getOptimizationByBatchId(
-            @Parameter(description = "Optimization batch ID") @PathVariable String batchId) {
-
-        return assignmentAuditRepository.findByBatchId(batchId)
-                .map(audit -> ResponseEntity.ok(audit))
-                .orElse(ResponseEntity.notFound().build());
-    }
-
-    // ========== Statistics Endpoints ==========
-
-    @Operation(summary = "Get ride statistics", description = "Get statistical summary for rides on a specific date")
-    @GetMapping("/statistics/rides")
-    public ResponseEntity<RideStatisticsDTO> getRideStatisticsDTO(
-            @Parameter(description = "Date for statistics")
-            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date) {
-
-        LocalDateTime start = date.atStartOfDay();
-        LocalDateTime end = date.plusDays(1).atStartOfDay();
-
-        List<Ride> allRides = rideRepository.findByPickupTimeBetween(start, end);
-
-        long totalRides = allRides.size();
-        long assignedRides = allRides.stream()
-                .filter(ride -> ride.getPickupDriver() != null || ride.getDropoffDriver() != null)
-                .count();
-        long emergencyRides = allRides.stream()
-                .filter(ride -> ride.getPriority() == Priority.EMERGENCY)
-                .count();
-        long wheelchairRides = allRides.stream()
-                .filter(ride -> "wheelchair_van".equals(ride.getRequiredVehicleType()))
-                .count();
-        long roundTripRides = allRides.stream()
-                .filter(ride -> Boolean.TRUE.equals(ride.getIsRoundTrip()))
-                .count();
-
-        RideStatisticsDTO stats = RideStatisticsDTO.builder()
-                .date(date)
-                .totalRides((int) totalRides)
-                .assignedRides((int) assignedRides)
-                .unassignedRides((int) (totalRides - assignedRides))
-                .emergencyRides((int) emergencyRides)
-                .wheelchairRides((int) wheelchairRides)
-                .roundTripRides((int) roundTripRides)
-                .assignmentRate(totalRides > 0 ? (assignedRides * 100.0 / totalRides) : 0.0)
-                .build();
-
-        return ResponseEntity.ok(stats);
-    }
-
-    @Operation(summary = "Get driver statistics", description = "Get statistical summary of drivers")
-    @GetMapping("/statistics/drivers")
-    public ResponseEntity<DriverStatisticsDTO> getDriverStatistics() {
-        List<Driver> activeDrivers = driverRepository.findByActiveTrue();
-
-        long wheelchairAccessible = activeDrivers.stream()
-                .filter(d -> Boolean.TRUE.equals(d.getWheelchairAccessible()))
-                .count();
-        long stretcherCapable = activeDrivers.stream()
-                .filter(d -> Boolean.TRUE.equals(d.getStretcherCapable()))
-                .count();
-        long oxygenEquipped = activeDrivers.stream()
-                .filter(d -> Boolean.TRUE.equals(d.getOxygenEquipped()))
-                .count();
-
-        DriverStatisticsDTO stats = DriverStatisticsDTO.builder()
-                .totalActiveDrivers((long) activeDrivers.size())
-                .wheelchairAccessibleCount((int) wheelchairAccessible)
-                .stretcherCapableCount((int) stretcherCapable)
-                .oxygenEquippedCount((int) oxygenEquipped)
-                .build();
-
-        return ResponseEntity.ok(stats);
-    }
-
-    // ========== Legacy Assignment Method ==========
-
-    @Operation(summary = "Legacy assign today", description = "Legacy endpoint for today's ride assignment")
-    @PostMapping("/assign/today")
-    public ResponseEntity<String> assignToday() {
-        LocalDateTime start = LocalDateTime.now().withHour(0).withMinute(0).withSecond(0).withNano(0);
-        LocalDateTime end = start.plusDays(1);
-
-        List<Ride> rides = rideRepository.findByPickupTimeBetween(start, end).stream()
-                .filter(ride -> ride.getPickupDriver() == null && ride.getDropoffDriver() == null)
-                .toList();
-
-        if (rides.isEmpty()) {
-            return ResponseEntity.ok("No unassigned rides found for today");
-        }
-
-        var result = medicalTransportOptimizer.optimizeSchedule(rides);
-
-        return ResponseEntity.ok(String.format("Assignment complete for today. Success Rate: %.1f%%",
-                result.getSuccessRate()));
-    }
-
-//        private final RideEvidenceService service;
-//
-//        @PostMapping("/{rideId}/evidence")
-//        public RideEvidenceDTO create(
-//                @PathVariable Long rideId,
-//                @RequestParam RideEvidenceEventType eventType,
-//                @RequestParam(required = false) String note,
-//                @RequestParam(required = false) Double lat,
-//                @RequestParam(required = false) Double lng,
-//                @RequestPart(required = false) MultipartFile signature,
-//                @RequestPart(required = false) List<MultipartFile> photos
-//        ) {
-//            return service.create(rideId, eventType, note, lat, lng, signature, photos);
-//        }
-//
-//        @GetMapping("/{rideId}/evidence")
-//        public List<RideEvidenceDTO> list(@PathVariable Long rideId) {
-//            return service.listByRide(rideId);
-//        }
-
 }
