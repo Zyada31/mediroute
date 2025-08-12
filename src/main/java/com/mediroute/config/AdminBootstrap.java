@@ -17,7 +17,7 @@ public class AdminBootstrap {
                 var u = new AppUser();
                 u.setEmail("admin@mediroute.local");
                 u.setPasswordHash(enc.encode("changeMe123!"));
-                u.setRoles(List.of("ADMIN","DISPATCHER"));
+                u.setRoles(String.valueOf(List.of("ADMIN","DISPATCHER")));
                 users.save(u);
             }
         };

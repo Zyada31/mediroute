@@ -22,7 +22,7 @@ import java.util.List;
 import java.util.UUID;
 
 @RestController
-@RequestMapping("/api/v1/auth") // unified prefix
+@RequestMapping("/api/v1/auth")
 public class AuthController {
     private final UserRepo userRepo;
     private final RefreshTokenRepo rtRepo;
@@ -48,7 +48,13 @@ public class AuthController {
             throw new ResponseStatusException(HttpStatus.UNAUTHORIZED);
         }
 
-        String access = jwt.createAccessToken((JwtService.AppUserLike) user);
+        String access = jwt.createAccessToken(new com.mediroute.service.security.AppUserView() {
+            @Override public Long getId() { return user.getId(); }
+            @Override public String getEmail() { return user.getEmail(); }
+            @Override public List<String> getRoles() { return user.getRoleList(); }
+            @Override public Long getDriverId() { return user.getDriverId(); }
+            @Override public String getName() { return null; } // or user.getName() if/when you add it
+        });
 
         var ttlDays = props.getSecurity().getRefreshTokenTtlDays();
         var rt = new RefreshToken();

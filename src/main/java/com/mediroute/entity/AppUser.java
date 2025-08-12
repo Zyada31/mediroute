@@ -2,10 +2,12 @@
 package com.mediroute.entity;
 
 import jakarta.persistence.*;
-import jakarta.validation.constraints.Email;
-import jakarta.validation.constraints.NotBlank;
-import java.util.ArrayList;
+
+import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
+import java.util.Objects;
+import java.util.stream.Collectors;
 
 @Entity
 @Table(name = "app_users",
@@ -14,28 +16,22 @@ import java.util.List;
                 @Index(name="idx_users_active", columnList = "active")
         })
 public class AppUser {
-
     @Id @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @NotBlank @Email
-    @Column(nullable = false, unique = true, length = 160)
     private String email;
 
-    @NotBlank
-    @Column(nullable = false, length = 100) // BCrypt hash length ~60
+    @Column(name = "password_hash", nullable = false)
     private String passwordHash;
 
-    @ElementCollection(fetch = FetchType.EAGER)
-    @CollectionTable(name = "user_roles", joinColumns = @JoinColumn(name = "user_id"))
-    @Column(name = "role", nullable = false, length = 40)
-    private List<String> roles = new ArrayList<>();
+    private boolean active;
 
-    // If a DRIVER account maps to a driver record in your domain
+    /** Simple storage for now: "ADMIN,DISPATCHER" */
+    @Column(columnDefinition = "text", nullable = false)
+    private String roles;
+
+    @Column(name = "driver_id")
     private Long driverId;
-
-    @Column(nullable = false)
-    private boolean active = true;
 
     // getters/setters …
     public Long getId() { return id; }
@@ -43,10 +39,33 @@ public class AppUser {
     public void setEmail(String email) { this.email = email; }
     public String getPasswordHash() { return passwordHash; }
     public void setPasswordHash(String passwordHash) { this.passwordHash = passwordHash; }
-    public List<String> getRoles() { return roles; }
-    public void setRoles(List<String> roles) { this.roles = roles; }
+    public List<String> getRoles() { return Collections.singletonList(roles); }
+    public void setRoles(String roles) { this.roles = roles; }
     public Long getDriverId() { return driverId; }
     public void setDriverId(Long driverId) { this.driverId = driverId; }
     public boolean isActive() { return active; }
     public void setActive(boolean active) { this.active = active; }
+    // keep JPA backing string
+    public String getRolesRaw() { return roles; } // optional convenience
+
+    /** Use this in app logic; yields ["ADMIN","DISPATCHER"] instead of ["ADMIN,DISPATCHER"]. */
+    public List<String> getRoleList() {
+        if (roles == null || roles.isBlank()) return List.of();
+        return Arrays.stream(roles.split(","))
+                .map(String::trim)
+                .filter(s -> !s.isEmpty())
+                .distinct()
+                .toList();
+    }
+
+    /** Optional: allow setting from list while persisting CSV. */
+    public void setRoleList(List<String> roleList) {
+        this.roles = (roleList == null ? "" :
+                roleList.stream()
+                        .filter(Objects::nonNull)
+                        .map(String::trim)
+                        .filter(s -> !s.isEmpty())
+                        .distinct()
+                        .collect(Collectors.joining(",")));
+    }
 }

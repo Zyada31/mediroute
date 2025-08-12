@@ -67,7 +67,8 @@ public class SecurityConfig {
                         .requestMatchers(
                                 "/actuator/health", "/actuator/info",
                                 "/v3/api-docs/**", "/swagger-ui/**", "/swagger-ui.html",
-                                "/api/dev/token"         // dev-only helper
+                                "/api/dev/token" ,        // dev-only helper
+                                "/api/v1/auth/login"         // dev-only helper
                         ).permitAll()
 
                         // Public auth endpoints (if/when you add them)

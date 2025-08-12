@@ -97,19 +97,19 @@ public class JwtService {
     /**
      * Create an access token without tying to a specific entity class.
      */
-    public String createAccessToken(Long userId, String email, List<String> roles, Long driverId, String name) {
+    public String createAccessToken(AppUserView user) {
         long ttlMin = props.getSecurity().getAccessTokenTtlMin();
-        Duration ttl = Duration.ofMinutes(ttlMin <= 0 ? 10 : ttlMin);
+        var ttl = Duration.ofMinutes(ttlMin <= 0 ? 10 : ttlMin);
 
         Map<String, Object> claims = new HashMap<>();
-        claims.put("email", email);
-        claims.put("roles", roles == null ? List.of() : roles);
-        if (driverId != null) claims.put("driverId", driverId);
-        if (name != null) claims.put("name", name);
+        claims.put("email", user.getEmail());
+        claims.put("roles", user.getRoles() == null ? List.of() : user.getRoles());
+        if (user.getDriverId() != null) claims.put("driverId", user.getDriverId());
+        if (user.getName() != null) claims.put("name", user.getName());
         claims.put("type", "access");
         claims.put("jti", UUID.randomUUID().toString());
 
-        return issueAccessToken(String.valueOf(userId), claims, ttl);
+        return issueAccessToken(String.valueOf(user.getId()), claims, ttl);
     }
 
     // ----------------------------------------------------------------
