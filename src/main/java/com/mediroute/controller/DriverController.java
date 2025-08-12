@@ -1,3 +1,4 @@
+// Enhanced DriverController.java with additional endpoints
 package com.mediroute.controller;
 
 import com.mediroute.dto.DriverDTO;
@@ -19,12 +20,14 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.security.access.prepost.PreAuthorize;
 
 import jakarta.validation.Valid;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.stream.Collectors;
 
 @CrossOrigin(origins = {"http://localhost:3000", "https://app.mediroute.com"})
@@ -39,14 +42,198 @@ public class DriverController {
     private final DriverService driverService;
     private final RideService rideService;
 
-    // ========== CREATE/UPDATE OPERATIONS ==========
+    // ========== NEW ENDPOINTS ==========
 
-    @Operation(summary = "Create a new driver", description = "Create a new driver with medical transport capabilities")
+    /**
+     * Get rides by driver ID or all rides if no driver ID provided
+     */
+    @Operation(
+            summary = "Get rides by driver or all rides",
+            description = "Retrieve rides for a specific driver ID or all rides if no driver ID provided"
+    )
     @ApiResponses(value = {
-            @ApiResponse(responseCode = "201", description = "Driver created successfully"),
-            @ApiResponse(responseCode = "400", description = "Invalid driver data"),
-            @ApiResponse(responseCode = "409", description = "Driver already exists")
+            @ApiResponse(responseCode = "200", description = "Rides retrieved successfully"),
+            @ApiResponse(responseCode = "404", description = "Driver not found (if driver ID provided)")
     })
+    @PreAuthorize(""" 
+      hasAnyRole('ADMIN','DISPATCHER') or
+      (#driverId != null and #driverId == authentication.details['driverId'])
+    """)
+    @GetMapping("/rides")
+    public ResponseEntity<List<RideDetailDTO>> getRidesByDriverOrAll(
+            @Parameter(description = "Driver ID (optional - if not provided, returns all rides)")
+            @RequestParam(required = false) Long driverId,
+            @Parameter(description = "Date (YYYY-MM-DD) - defaults to today")
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date) {
+
+        if (date == null) {
+            date = LocalDate.now();
+        }
+
+        try {
+            List<RideDetailDTO> rides;
+
+            if (driverId != null) {
+                // Verify driver exists
+                Optional<Driver> driver = driverService.getDriverById(driverId);
+                if (driver.isEmpty()) {
+                    log.warn("Driver not found with ID: {}", driverId);
+                    return ResponseEntity.notFound().build();
+                }
+
+                // Get rides for specific driver
+                List<Ride> driverRides = rideService.findRidesByDriver(driverId, date);
+                rides = driverRides.stream()
+                        .map(RideDetailDTO::fromEntity)
+                        .sorted((r1, r2) -> {
+                            if (r1.getPickupTime() != null && r2.getPickupTime() != null) {
+                                return r1.getPickupTime().compareTo(r2.getPickupTime());
+                            }
+                            return 0;
+                        })
+                        .collect(Collectors.toList());
+
+                log.info("Found {} rides for driver {} on {}", rides.size(), driverId, date);
+            } else {
+                // Get all rides for the date
+                rides = rideService.findRidesByDate(date);
+                log.info("Found {} total rides on {}", rides.size(), date);
+            }
+
+            return ResponseEntity.ok(rides);
+
+        } catch (Exception e) {
+            log.error("Error retrieving rides for driver {} on date {}", driverId, date, e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+        }
+    }
+
+    /**
+     * Get driver by ID or by name (search)
+     */
+    @Operation(
+            summary = "Get driver by ID or search by name",
+            description = "Retrieve a specific driver by ID or search drivers by name"
+    )
+    @ApiResponses(value = {
+            @ApiResponse(responseCode = "200", description = "Driver(s) found"),
+            @ApiResponse(responseCode = "404", description = "Driver not found"),
+            @ApiResponse(responseCode = "400", description = "Invalid request - provide either ID or name")
+    })
+    @GetMapping("/search")
+    public ResponseEntity<?> getDriverByIdOrName(
+            @Parameter(description = "Driver ID (mutually exclusive with name)")
+            @RequestParam(required = false) Long id,
+            @Parameter(description = "Driver name to search (mutually exclusive with id)")
+            @RequestParam(required = false) String name) {
+
+        // Validate that exactly one parameter is provided
+        if ((id == null && name == null) || (id != null && name != null)) {
+            return ResponseEntity.badRequest()
+                    .body(createErrorResponse("INVALID_REQUEST",
+                            "Please provide either 'id' or 'name' parameter, but not both"));
+        }
+
+        try {
+            if (id != null) {
+                // Search by ID - return single driver
+                Optional<Driver> driver = driverService.getDriverById(id);
+                if (driver.isPresent()) {
+                    DriverDTO driverDTO = DriverDTO.fromEntity(driver.get());
+                    log.info("Found driver by ID {}: {}", id, driver.get().getName());
+                    return ResponseEntity.ok(driverDTO);
+                } else {
+                    log.warn("Driver not found with ID: {}", id);
+                    return ResponseEntity.notFound().build();
+                }
+            } else {
+                // Search by name - return list of matching drivers
+                List<Driver> drivers = driverService.searchDriversByName(name);
+                List<DriverDTO> driverDTOs = drivers.stream()
+                        .map(DriverDTO::fromEntity)
+                        .collect(Collectors.toList());
+
+                log.info("Found {} drivers matching name '{}'", drivers.size(), name);
+                return ResponseEntity.ok(driverDTOs);
+            }
+
+        } catch (Exception e) {
+            log.error("Error searching for driver with id={}, name={}", id, name, e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(createErrorResponse("INTERNAL_ERROR", "Failed to search for driver"));
+        }
+    }
+
+    /**
+     * Get driver's daily summary by driver ID
+     */
+    @Operation(
+            summary = "Get driver's daily summary",
+            description = "Get comprehensive daily summary for a specific driver including rides, workload, and performance metrics"
+    )
+    @ApiResponses(value = {
+            @ApiResponse(responseCode = "200", description = "Daily summary retrieved successfully"),
+            @ApiResponse(responseCode = "404", description = "Driver not found")
+    })
+    @GetMapping("/{id}/daily-summary")
+    public ResponseEntity<?> getDriverDailySummary(
+            @Parameter(description = "Driver ID", required = true)
+            @PathVariable Long id,
+            @Parameter(description = "Date (YYYY-MM-DD) - defaults to today")
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date) {
+
+        if (date == null) {
+            date = LocalDate.now();
+        }
+
+        try {
+            // Verify driver exists
+            Optional<Driver> driverOpt = driverService.getDriverById(id);
+            if (driverOpt.isEmpty()) {
+                log.warn("Driver not found with ID: {}", id);
+                return ResponseEntity.notFound().build();
+            }
+
+            Driver driver = driverOpt.get();
+
+            // Get rides for the day
+            List<Ride> rides = rideService.findRidesByDriver(id, date);
+            List<RideDetailDTO> rideDetails = rides.stream()
+                    .map(RideDetailDTO::fromEntity)
+                    .sorted((r1, r2) -> {
+                        if (r1.getPickupTime() != null && r2.getPickupTime() != null) {
+                            return r1.getPickupTime().compareTo(r2.getPickupTime());
+                        }
+                        return 0;
+                    })
+                    .collect(Collectors.toList());
+
+            // Get workload information
+            DriverService.DriverWorkload workload = driverService.getDriverWorkload(id, date);
+
+            // Create comprehensive summary
+            DriverDailySummary summary = DriverDailySummary.builder()
+                    .driver(DriverDTO.fromEntity(driver))
+                    .date(date)
+                    .rides(rideDetails)
+                    .workload(workload)
+                    .summary(createDailySummaryStats(rides, driver, date))
+                    .build();
+
+            log.info("Generated daily summary for driver {} ({}): {} rides, {:.1f}% utilization",
+                    id, driver.getName(), rides.size(), workload.getUtilizationRate());
+
+            return ResponseEntity.ok(summary);
+
+        } catch (Exception e) {
+            log.error("Error generating daily summary for driver {} on date {}", id, date, e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(createErrorResponse("INTERNAL_ERROR", "Failed to generate daily summary"));
+        }
+    }
+
+    // ========== EXISTING ENDPOINTS (Keep all your existing methods) ==========
+
     @PostMapping
     public ResponseEntity<?> createDriver(@Validated(DriverDTO.Create.class) @RequestBody DriverDTO dto) {
         try {
@@ -69,12 +256,6 @@ public class DriverController {
         }
     }
 
-    @Operation(summary = "Update an existing driver", description = "Update driver information and capabilities")
-    @ApiResponses(value = {
-            @ApiResponse(responseCode = "200", description = "Driver updated successfully"),
-            @ApiResponse(responseCode = "404", description = "Driver not found"),
-            @ApiResponse(responseCode = "400", description = "Invalid update data")
-    })
     @PutMapping("/{id}")
     public ResponseEntity<?> updateDriver(
             @Parameter(description = "Driver ID") @PathVariable Long id,
@@ -85,7 +266,6 @@ public class DriverController {
                 return ResponseEntity.notFound().build();
             }
 
-            // Set the ID for update
             dto.setId(id);
             Driver updated = driverService.createOrUpdateDriver(dto, true);
 
@@ -103,42 +283,6 @@ public class DriverController {
         }
     }
 
-    // ========== BATCH OPERATIONS ==========
-
-    @Operation(summary = "Batch create drivers", description = "Create multiple drivers in a single operation")
-    @PostMapping("/batch")
-    public ResponseEntity<BatchDriverResponse> createMultipleDrivers(
-            @Valid @RequestBody List<DriverDTO> createRequests) {
-
-        log.info("Processing batch creation of {} drivers", createRequests.size());
-        BatchDriverResponse response = new BatchDriverResponse();
-
-        for (DriverDTO createRequest : createRequests) {
-            try {
-                Driver saved = driverService.createOrUpdateDriver(createRequest, false);
-                response.addSuccess(DriverDTO.fromEntity(saved));
-
-            } catch (IllegalStateException e) {
-                log.warn("⚠️ Skipped duplicate driver: {}", createRequest.getName());
-                response.addError(createRequest.getName(), "DUPLICATE_DRIVER", e.getMessage());
-            } catch (IllegalArgumentException e) {
-                log.error("Failed to process driver: {}", createRequest.getName(), e);
-                response.addError(createRequest.getName(), "INVALID_DATA", e.getMessage());
-            } catch (Exception e) {
-                log.error("Unexpected error for driver: {}", createRequest.getName(), e);
-                response.addError(createRequest.getName(), "INTERNAL_ERROR", "Failed to create driver");
-            }
-        }
-
-        log.info("Batch processing complete: {} successful, {} failed",
-                response.getSuccessful().size(), response.getErrors().size());
-
-        return ResponseEntity.ok(response);
-    }
-
-    // ========== RETRIEVAL OPERATIONS ==========
-
-    @Operation(summary = "Get all drivers", description = "Retrieve all drivers with their details")
     @GetMapping
     public ResponseEntity<List<DriverDTO>> getAllDrivers() {
         try {
@@ -154,7 +298,6 @@ public class DriverController {
         }
     }
 
-    @Operation(summary = "Get driver by ID", description = "Retrieve a specific driver by their ID")
     @GetMapping("/{id}")
     public ResponseEntity<DriverDTO> getDriverById(
             @Parameter(description = "Driver ID") @PathVariable Long id) {
@@ -169,193 +312,6 @@ public class DriverController {
         }
     }
 
-    @Operation(summary = "Get active drivers", description = "Retrieve only active drivers")
-    @GetMapping("/active")
-    public ResponseEntity<List<DriverDTO>> getActiveDrivers() {
-        try {
-            List<Driver> activeDrivers = driverService.getQualifiedDrivers();
-            List<DriverDTO> driverDTOs = activeDrivers.stream()
-                    .map(DriverDTO::fromEntity)
-                    .collect(Collectors.toList());
-
-            return ResponseEntity.ok(driverDTOs);
-        } catch (Exception e) {
-            log.error("Error retrieving active drivers", e);
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
-        }
-    }
-
-    @Operation(summary = "Get drivers by capability", description = "Get drivers filtered by medical transport capabilities")
-    @GetMapping("/by-capability")
-    public ResponseEntity<List<DriverDTO>> getDriversByCapability(
-            @Parameter(description = "Vehicle type") @RequestParam(required = false) String vehicleType,
-            @Parameter(description = "Wheelchair accessible") @RequestParam(required = false) Boolean wheelchairAccessible,
-            @Parameter(description = "Stretcher capable") @RequestParam(required = false) Boolean stretcherCapable,
-            @Parameter(description = "Oxygen equipped") @RequestParam(required = false) Boolean oxygenEquipped) {
-        try {
-            List<Driver> drivers = driverService.getQualifiedDrivers().stream()
-                    .filter(driver -> vehicleType == null ||
-                            driver.getVehicleType().name().equalsIgnoreCase(vehicleType))
-                    .filter(driver -> wheelchairAccessible == null ||
-                            driver.getWheelchairAccessible().equals(wheelchairAccessible))
-                    .filter(driver -> stretcherCapable == null ||
-                            driver.getStretcherCapable().equals(stretcherCapable))
-                    .filter(driver -> oxygenEquipped == null ||
-                            driver.getOxygenEquipped().equals(oxygenEquipped))
-                    .collect(Collectors.toList());
-
-            List<DriverDTO> driverDTOs = drivers.stream()
-                    .map(DriverDTO::fromEntity)
-                    .collect(Collectors.toList());
-
-            return ResponseEntity.ok(driverDTOs);
-        } catch (Exception e) {
-            log.error("Error filtering drivers by capability", e);
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
-        }
-    }
-
-    // ========== RIDES BY DRIVER ==========
-
-    @Operation(summary = "Get rides by driver and date",
-            description = "Retrieve all rides assigned to a specific driver on a given date")
-    @ApiResponses(value = {
-            @ApiResponse(responseCode = "200", description = "Rides retrieved successfully"),
-            @ApiResponse(responseCode = "404", description = "Driver not found")
-    })
-    @GetMapping("/{id}/rides")
-    public ResponseEntity<List<RideDetailDTO>> getRidesByDriverAndDate(
-            @Parameter(description = "Driver ID") @PathVariable Long id,
-            @Parameter(description = "Date (YYYY-MM-DD)")
-            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date) {
-        try {
-            // Verify driver exists
-            var driver = driverService.getDriverById(id);
-            if (driver.isEmpty()) {
-                return ResponseEntity.notFound().build();
-            }
-
-            // Get rides for this driver on the specified date
-            List<Ride> rides = rideService.findRidesByDriver(id, date);
-
-            // Convert to DTOs
-            List<RideDetailDTO> rideDTOs = rides.stream()
-                    .map(RideDetailDTO::fromEntity)
-                    .sorted((r1, r2) -> {
-                        // Sort by pickup time
-                        if (r1.getPickupTime() != null && r2.getPickupTime() != null) {
-                            return r1.getPickupTime().compareTo(r2.getPickupTime());
-                        }
-                        return 0;
-                    })
-                    .collect(Collectors.toList());
-
-            log.info("Found {} rides for driver {} on {}", rideDTOs.size(), id, date);
-            return ResponseEntity.ok(rideDTOs);
-
-        } catch (Exception e) {
-            log.error("Error retrieving rides for driver {} on date {}", id, date, e);
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
-        }
-    }
-
-    @Operation(summary = "Get today's rides for driver",
-            description = "Retrieve all rides assigned to a specific driver for today")
-    @GetMapping("/{id}/rides/today")
-    public ResponseEntity<List<RideDetailDTO>> getTodayRidesForDriver(
-            @Parameter(description = "Driver ID") @PathVariable Long id) {
-        return getRidesByDriverAndDate(id, LocalDate.now());
-    }
-
-    @Operation(summary = "Get driver's ride history",
-            description = "Retrieve ride history for a driver within a date range")
-    @GetMapping("/{id}/rides/history")
-    public ResponseEntity<List<RideDetailDTO>> getDriverRideHistory(
-            @Parameter(description = "Driver ID") @PathVariable Long id,
-            @Parameter(description = "Start date")
-            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate startDate,
-            @Parameter(description = "End date")
-            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate endDate) {
-        try {
-            // Verify driver exists
-            var driver = driverService.getDriverById(id);
-            if (driver.isEmpty()) {
-                return ResponseEntity.notFound().build();
-            }
-
-            List<RideDetailDTO> allRides = new ArrayList<>();
-
-            // Iterate through each day in the range
-            LocalDate currentDate = startDate;
-            while (!currentDate.isAfter(endDate)) {
-                List<Ride> dayRides = rideService.findRidesByDriver(id, currentDate);
-                allRides.addAll(dayRides.stream()
-                        .map(RideDetailDTO::fromEntity)
-                        .collect(Collectors.toList()));
-                currentDate = currentDate.plusDays(1);
-            }
-
-            // Sort by pickup time
-            allRides.sort((r1, r2) -> {
-                if (r1.getPickupTime() != null && r2.getPickupTime() != null) {
-                    return r1.getPickupTime().compareTo(r2.getPickupTime());
-                }
-                return 0;
-            });
-
-            log.info("Found {} rides for driver {} between {} and {}",
-                    allRides.size(), id, startDate, endDate);
-            return ResponseEntity.ok(allRides);
-
-        } catch (Exception e) {
-            log.error("Error retrieving ride history for driver {} between {} and {}",
-                    id, startDate, endDate, e);
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
-        }
-    }
-
-    // ========== WORKLOAD AND AVAILABILITY ==========
-
-    @Operation(summary = "Get driver workload", description = "Get driver workload for a specific date")
-    @GetMapping("/{id}/workload")
-    public ResponseEntity<?> getDriverWorkload(
-            @Parameter(description = "Driver ID") @PathVariable Long id,
-            @Parameter(description = "Date (YYYY-MM-DD)")
-            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date) {
-        try {
-            var workload = driverService.getDriverWorkload(id, date);
-            return ResponseEntity.ok(workload);
-        } catch (IllegalArgumentException e) {
-            return ResponseEntity.notFound().build();
-        } catch (Exception e) {
-            log.error("Error getting workload for driver {}", id, e);
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
-        }
-    }
-
-    @Operation(summary = "Get all driver workloads",
-            description = "Get workload summary for all drivers on a specific date")
-    @GetMapping("/workload")
-    public ResponseEntity<List<DriverService.DriverWorkload>> getAllDriverWorkloads(
-            @Parameter(description = "Date (YYYY-MM-DD)")
-            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date) {
-        try {
-            List<Driver> activeDrivers = driverService.getQualifiedDrivers();
-            List<DriverService.DriverWorkload> workloads = activeDrivers.stream()
-                    .map(driver -> driverService.getDriverWorkload(driver.getId(), date))
-                    .sorted((w1, w2) -> Double.compare(w2.getUtilizationRate(), w1.getUtilizationRate()))
-                    .collect(Collectors.toList());
-
-            return ResponseEntity.ok(workloads);
-        } catch (Exception e) {
-            log.error("Error getting all driver workloads for {}", date, e);
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
-        }
-    }
-
-    // ========== STATISTICS ==========
-
-    @Operation(summary = "Get driver statistics", description = "Get comprehensive driver statistics")
     @GetMapping("/statistics")
     public ResponseEntity<DriverStatisticsDTO> getDriverStatistics() {
         try {
@@ -367,44 +323,58 @@ public class DriverController {
         }
     }
 
-    // ========== MANAGEMENT OPERATIONS ==========
-
-    @Operation(summary = "Deactivate driver", description = "Deactivate a driver")
-    @PutMapping("/{id}/deactivate")
-    public ResponseEntity<?> deactivateDriver(
-            @Parameter(description = "Driver ID") @PathVariable Long id) {
-        try {
-            driverService.deactivateDriver(id);
-            return ResponseEntity.ok(createSuccessResponse("Driver deactivated successfully"));
-        } catch (IllegalArgumentException e) {
-            return ResponseEntity.notFound().build();
-        } catch (Exception e) {
-            log.error("Error deactivating driver {}", id, e);
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(createErrorResponse("INTERNAL_ERROR", "Failed to deactivate driver"));
-        }
-    }
-
-    @Operation(summary = "Reactivate driver", description = "Reactivate a driver")
-    @PutMapping("/{id}/reactivate")
-    public ResponseEntity<?> reactivateDriver(
-            @Parameter(description = "Driver ID") @PathVariable Long id) {
-        try {
-            driverService.reactivateDriver(id);
-            return ResponseEntity.ok(createSuccessResponse("Driver reactivated successfully"));
-        } catch (IllegalArgumentException e) {
-            return ResponseEntity.notFound().build();
-        } catch (IllegalStateException e) {
-            return ResponseEntity.badRequest()
-                    .body(createErrorResponse("INVALID_STATE", e.getMessage()));
-        } catch (Exception e) {
-            log.error("Error reactivating driver {}", id, e);
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(createErrorResponse("INTERNAL_ERROR", "Failed to reactivate driver"));
-        }
-    }
-
     // ========== HELPER METHODS ==========
+
+    /**
+     * Create detailed daily summary statistics
+     */
+    private DailySummaryStats createDailySummaryStats(List<Ride> rides, Driver driver, LocalDate date) {
+        int totalRides = rides.size();
+        int completedRides = (int) rides.stream()
+                .filter(r -> r.getStatus().name().equals("COMPLETED"))
+                .count();
+        int pendingRides = (int) rides.stream()
+                .filter(r -> !r.getStatus().name().equals("COMPLETED") &&
+                        !r.getStatus().name().equals("CANCELLED"))
+                .count();
+        int cancelledRides = (int) rides.stream()
+                .filter(r -> r.getStatus().name().equals("CANCELLED"))
+                .count();
+
+        double totalDistance = rides.stream()
+                .mapToDouble(r -> r.getDistance() != null ? r.getDistance() : 0.0)
+                .sum();
+
+        int totalEstimatedMinutes = rides.stream()
+                .mapToInt(r -> r.getEstimatedDuration() != null ? r.getEstimatedDuration() : 0)
+                .sum();
+
+        long wheelchairRides = rides.stream()
+                .filter(r -> "WHEELCHAIR_VAN".equals(r.getRequiredVehicleType()))
+                .count();
+
+        long stretcherRides = rides.stream()
+                .filter(r -> "STRETCHER_VAN".equals(r.getRequiredVehicleType()))
+                .count();
+
+        long emergencyRides = rides.stream()
+                .filter(r -> r.getPriority().name().equals("EMERGENCY"))
+                .count();
+
+        return DailySummaryStats.builder()
+                .totalRides(totalRides)
+                .completedRides(completedRides)
+                .pendingRides(pendingRides)
+                .cancelledRides(cancelledRides)
+                .totalDistanceKm(totalDistance)
+                .totalEstimatedMinutes(totalEstimatedMinutes)
+                .wheelchairRides((int) wheelchairRides)
+                .stretcherRides((int) stretcherRides)
+                .emergencyRides((int) emergencyRides)
+                .averageRideDistance(totalRides > 0 ? totalDistance / totalRides : 0.0)
+                .completionRate(totalRides > 0 ? (completedRides * 100.0) / totalRides : 0.0)
+                .build();
+    }
 
     private ErrorResponse createErrorResponse(String code, String message) {
         return new ErrorResponse(code, message, LocalDateTime.now());
@@ -416,42 +386,182 @@ public class DriverController {
 
     // ========== RESPONSE CLASSES ==========
 
-    public static class BatchDriverResponse {
-        private List<DriverDTO> successful = new ArrayList<>();
-        private List<DriverError> errors = new ArrayList<>();
+    public static class DriverDailySummary {
+        private DriverDTO driver;
+        private LocalDate date;
+        private List<RideDetailDTO> rides;
+        private DriverService.DriverWorkload workload;
+        private DailySummaryStats summary;
 
-        public void addSuccess(DriverDTO driver) {
-            successful.add(driver);
-        }
-
-        public void addError(String driverName, String errorCode, String message) {
-            errors.add(new DriverError(driverName, errorCode, message));
+        public static DriverDailySummaryBuilder builder() {
+            return new DriverDailySummaryBuilder();
         }
 
         // Getters
-        public List<DriverDTO> getSuccessful() { return successful; }
-        public List<DriverError> getErrors() { return errors; }
-        public int getSuccessCount() { return successful.size(); }
-        public int getErrorCount() { return errors.size(); }
+        public DriverDTO getDriver() { return driver; }
+        public LocalDate getDate() { return date; }
+        public List<RideDetailDTO> getRides() { return rides; }
+        public DriverService.DriverWorkload getWorkload() { return workload; }
+        public DailySummaryStats getSummary() { return summary; }
+
+        public static class DriverDailySummaryBuilder {
+            private DriverDTO driver;
+            private LocalDate date;
+            private List<RideDetailDTO> rides;
+            private DriverService.DriverWorkload workload;
+            private DailySummaryStats summary;
+
+            public DriverDailySummaryBuilder driver(DriverDTO driver) {
+                this.driver = driver;
+                return this;
+            }
+
+            public DriverDailySummaryBuilder date(LocalDate date) {
+                this.date = date;
+                return this;
+            }
+
+            public DriverDailySummaryBuilder rides(List<RideDetailDTO> rides) {
+                this.rides = rides;
+                return this;
+            }
+
+            public DriverDailySummaryBuilder workload(DriverService.DriverWorkload workload) {
+                this.workload = workload;
+                return this;
+            }
+
+            public DriverDailySummaryBuilder summary(DailySummaryStats summary) {
+                this.summary = summary;
+                return this;
+            }
+
+            public DriverDailySummary build() {
+                DriverDailySummary summary = new DriverDailySummary();
+                summary.driver = this.driver;
+                summary.date = this.date;
+                summary.rides = this.rides;
+                summary.workload = this.workload;
+                summary.summary = this.summary;
+                return summary;
+            }
+        }
     }
 
-    public static class DriverError {
-        private String driverName;
-        private String errorCode;
-        private String message;
-        private LocalDateTime timestamp = LocalDateTime.now();
+    public static class DailySummaryStats {
+        private int totalRides;
+        private int completedRides;
+        private int pendingRides;
+        private int cancelledRides;
+        private double totalDistanceKm;
+        private int totalEstimatedMinutes;
+        private int wheelchairRides;
+        private int stretcherRides;
+        private int emergencyRides;
+        private double averageRideDistance;
+        private double completionRate;
 
-        public DriverError(String driverName, String errorCode, String message) {
-            this.driverName = driverName;
-            this.errorCode = errorCode;
-            this.message = message;
+        public static DailySummaryStatsBuilder builder() {
+            return new DailySummaryStatsBuilder();
         }
 
         // Getters
-        public String getDriverName() { return driverName; }
-        public String getErrorCode() { return errorCode; }
-        public String getMessage() { return message; }
-        public LocalDateTime getTimestamp() { return timestamp; }
+        public int getTotalRides() { return totalRides; }
+        public int getCompletedRides() { return completedRides; }
+        public int getPendingRides() { return pendingRides; }
+        public int getCancelledRides() { return cancelledRides; }
+        public double getTotalDistanceKm() { return totalDistanceKm; }
+        public int getTotalEstimatedMinutes() { return totalEstimatedMinutes; }
+        public int getWheelchairRides() { return wheelchairRides; }
+        public int getStretcherRides() { return stretcherRides; }
+        public int getEmergencyRides() { return emergencyRides; }
+        public double getAverageRideDistance() { return averageRideDistance; }
+        public double getCompletionRate() { return completionRate; }
+
+        public static class DailySummaryStatsBuilder {
+            private int totalRides;
+            private int completedRides;
+            private int pendingRides;
+            private int cancelledRides;
+            private double totalDistanceKm;
+            private int totalEstimatedMinutes;
+            private int wheelchairRides;
+            private int stretcherRides;
+            private int emergencyRides;
+            private double averageRideDistance;
+            private double completionRate;
+
+            public DailySummaryStatsBuilder totalRides(int totalRides) {
+                this.totalRides = totalRides;
+                return this;
+            }
+
+            public DailySummaryStatsBuilder completedRides(int completedRides) {
+                this.completedRides = completedRides;
+                return this;
+            }
+
+            public DailySummaryStatsBuilder pendingRides(int pendingRides) {
+                this.pendingRides = pendingRides;
+                return this;
+            }
+
+            public DailySummaryStatsBuilder cancelledRides(int cancelledRides) {
+                this.cancelledRides = cancelledRides;
+                return this;
+            }
+
+            public DailySummaryStatsBuilder totalDistanceKm(double totalDistanceKm) {
+                this.totalDistanceKm = totalDistanceKm;
+                return this;
+            }
+
+            public DailySummaryStatsBuilder totalEstimatedMinutes(int totalEstimatedMinutes) {
+                this.totalEstimatedMinutes = totalEstimatedMinutes;
+                return this;
+            }
+
+            public DailySummaryStatsBuilder wheelchairRides(int wheelchairRides) {
+                this.wheelchairRides = wheelchairRides;
+                return this;
+            }
+
+            public DailySummaryStatsBuilder stretcherRides(int stretcherRides) {
+                this.stretcherRides = stretcherRides;
+                return this;
+            }
+
+            public DailySummaryStatsBuilder emergencyRides(int emergencyRides) {
+                this.emergencyRides = emergencyRides;
+                return this;
+            }
+
+            public DailySummaryStatsBuilder averageRideDistance(double averageRideDistance) {
+                this.averageRideDistance = averageRideDistance;
+                return this;
+            }
+
+            public DailySummaryStatsBuilder completionRate(double completionRate) {
+                this.completionRate = completionRate;
+                return this;
+            }
+
+            public DailySummaryStats build() {
+                DailySummaryStats stats = new DailySummaryStats();
+                stats.totalRides = this.totalRides;
+                stats.completedRides = this.completedRides;
+                stats.pendingRides = this.pendingRides;
+                stats.cancelledRides = this.cancelledRides;
+                stats.totalDistanceKm = this.totalDistanceKm;
+                stats.totalEstimatedMinutes = this.totalEstimatedMinutes;
+                stats.wheelchairRides = this.wheelchairRides;
+                stats.stretcherRides = this.stretcherRides;
+                stats.emergencyRides = this.emergencyRides;
+                stats.averageRideDistance = this.averageRideDistance;
+                stats.completionRate = this.completionRate;
+                return stats;
+            }
+        }
     }
 
     public static class ErrorResponse {
@@ -465,7 +575,6 @@ public class DriverController {
             this.timestamp = timestamp;
         }
 
-        // Getters
         public String getErrorCode() { return errorCode; }
         public String getMessage() { return message; }
         public LocalDateTime getTimestamp() { return timestamp; }
@@ -480,9 +589,7 @@ public class DriverController {
             this.timestamp = timestamp;
         }
 
-        // Getters
         public String getMessage() { return message; }
         public LocalDateTime getTimestamp() { return timestamp; }
     }
 }
-

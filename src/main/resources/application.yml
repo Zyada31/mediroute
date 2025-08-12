@@ -243,3 +243,23 @@ logging:
     com.mediroute: TRACE
     org.hibernate.SQL: DEBUG
     org.hibernate.type.descriptor.sql.BasicBinder: TRACE
+
+# src/main/resources/application.yml
+app:
+  security:
+    issuer: "https://mediroute.local"
+    access-token-ttl-min: 10
+    refresh-token-ttl-days: 14
+    cookie-name: refresh_token
+    cors:
+      origins:
+        - "http://localhost:5173"
+
+jwt:
+  private-key-pem: ${JWT_PRIVATE_KEY:${JWT_PRIVATE_PEM:}}
+  public-key-pem: ${JWT_PUBLIC_KEY:${JWT_PUBLIC_PEM:}}
+server:
+  servlet:
+    session:
+      cookie:
+        same-site: strict

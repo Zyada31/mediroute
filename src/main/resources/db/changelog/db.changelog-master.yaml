@@ -14,5 +14,5 @@
 ##      author: Semere
 ##      changes:
 ##        - sqlFile:
-##            path: 004-fix-assignment-audit-id.sql
+##            path: 004-auth-schema.xml
 ##            relativeToChangelogFile: true

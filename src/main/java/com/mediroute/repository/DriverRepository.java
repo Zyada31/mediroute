@@ -119,4 +119,17 @@ public interface DriverRepository extends BaseRepository<Driver, Long> {
     // 
     // SOLUTION: Handle driver workload in the service layer using RideRepository
     // See DriverService.getDriverWorkload() method for the correct implementation
+
+
+    /**
+     * Find active drivers by name containing the given string (case-insensitive)
+     */
+    @Query("SELECT d FROM Driver d WHERE d.active = true AND LOWER(d.name) LIKE LOWER(CONCAT('%', :name, '%'))")
+    List<Driver> findActiveDriversByNameContaining(@Param("name") String name);
+
+    /**
+     * Find drivers by exact name match (case-insensitive)
+     */
+    @Query("SELECT d FROM Driver d WHERE LOWER(d.name) = LOWER(:name)")
+    List<Driver> findByNameIgnoreCase(@Param("name") String name);
 }

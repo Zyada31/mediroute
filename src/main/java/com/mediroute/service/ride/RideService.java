@@ -5,6 +5,7 @@ import com.mediroute.entity.Ride;
 import com.mediroute.repository.RideRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.hibernate.Hibernate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -17,62 +18,97 @@ import java.util.stream.Collectors;
 @Service
 @RequiredArgsConstructor
 @Slf4j
-@Transactional(readOnly = true)  // Default to read-only for all methods
 public class RideService {
 
     private final RideRepository rideRepository;
+
+    /**
+     * Find ride by ID with all associations loaded
+     */
+    @Transactional(readOnly = true)
     public Optional<Ride> findById(Long id) {
         return rideRepository.findByIdWithFullDetails(id);
     }
 
-    public Optional<Ride> findByIdWithAudit(Long id) {
-        return rideRepository.findByIdWithAudit(id);
-    }
-
+    /**
+     * Find rides by date with all associations properly loaded
+     */
     @Transactional(readOnly = true)
     public List<RideDetailDTO> findRidesByDate(LocalDate date) {
         LocalDateTime start = date.atStartOfDay();
         LocalDateTime end = date.plusDays(1).atStartOfDay();
 
-        // Use the JOIN FETCH query
-        return rideRepository.findByPickupTimeBetweenWithDriversAndPatient(start, end)
-                .stream()
-                .map(RideDetailDTO::fromEntity)
+        // Use JOIN FETCH query to avoid lazy loading issues
+        List<Ride> rides = rideRepository.findByPickupTimeBetweenWithDriversAndPatient(start, end);
+
+        // Convert to DTOs within transaction to avoid lazy loading
+        return rides.stream()
+                .map(this::safeConvertToDTO)
                 .collect(Collectors.toList());
     }
 
+    /**
+     * Find rides by date and status with proper initialization
+     */
+    @Transactional(readOnly = true)
     public List<Ride> findRidesByDateAndStatus(LocalDate date, RideStatus status) {
         LocalDateTime start = date.atStartOfDay();
         LocalDateTime end = date.plusDays(1).atStartOfDay();
-        return rideRepository.findByPickupTimeBetweenAndStatusWithDriversAndPatient(start, end, status);
+
+        List<Ride> rides = rideRepository.findByPickupTimeBetweenAndStatusWithDriversAndPatient(start, end, status);
+
+        // Initialize entities within transaction
+        rides.forEach(this::initializeRideEntities);
+
+        return rides;
     }
 
+    /**
+     * Find unassigned rides with proper entity initialization
+     */
+    @Transactional(readOnly = true)
     public List<Ride> findUnassignedRides(LocalDate date) {
         LocalDateTime start = date.atStartOfDay();
         LocalDateTime end = date.plusDays(1).atStartOfDay();
-        return rideRepository.findUnassignedRidesInTimeRangeWithPatient(start, end);
+
+        List<Ride> rides = rideRepository.findUnassignedRidesInTimeRangeWithPatient(start, end);
+
+        // Initialize entities within transaction
+        rides.forEach(this::initializeRideEntities);
+
+        return rides;
     }
 
+    /**
+     * Find rides by driver with proper initialization
+     */
+    @Transactional(readOnly = true)
     public List<Ride> findRidesByDriver(Long driverId, LocalDate date) {
         LocalDateTime start = date.atStartOfDay();
         LocalDateTime end = date.plusDays(1).atStartOfDay();
-        return rideRepository.findByAnyDriverAndPickupTimeBetweenWithPatient(driverId, start, end);
+
+        List<Ride> rides = rideRepository.findByAnyDriverAndPickupTimeBetweenWithPatient(driverId, start, end);
+
+        // Initialize entities within transaction
+        rides.forEach(this::initializeRideEntities);
+
+        return rides;
     }
 
-    // Convert to DTOs to prevent lazy loading issues in controllers
-//    public List<RideDetailDTO> findRidesByDateAsDTO(LocalDate date) {
-//        return findRidesByDate(date).stream()
-//                .map(RideDetailDTO::fromEntity)
-//                .collect(Collectors.toList());
-//    }
-
+    /**
+     * Get unassigned rides as DTOs to prevent lazy loading issues
+     */
+    @Transactional(readOnly = true)
     public List<RideDetailDTO> findUnassignedRidesAsDTO(LocalDate date) {
         return findUnassignedRides(date).stream()
-                .map(RideDetailDTO::fromEntity)
+                .map(this::safeConvertToDTO)
                 .collect(Collectors.toList());
     }
 
-    @Transactional  // Write operation needs full transaction
+    /**
+     * Save ride with proper transaction management
+     */
+    @Transactional
     public Ride save(Ride ride) {
         log.debug("Saving ride for patient: {}",
                 ride.getPatient() != null ? ride.getPatient().getName() : "Unknown");
@@ -85,21 +121,27 @@ public class RideService {
         rideRepository.deleteById(id);
     }
 
+    @Transactional(readOnly = true)
     public boolean existsById(Long id) {
         return rideRepository.existsById(id);
     }
 
+    @Transactional(readOnly = true)
     public long count() {
         return rideRepository.count();
     }
 
-    // Statistics method that doesn't trigger lazy loading
+    /**
+     * Get ride statistics with proper entity initialization
+     */
+    @Transactional(readOnly = true)
     public RideStatisticsDTO getRideStatistics(LocalDate date) {
         LocalDateTime start = date.atStartOfDay();
         LocalDateTime end = date.plusDays(1).atStartOfDay();
 
         List<Ride> allRides = rideRepository.findByPickupTimeBetweenWithDriversAndPatient(start, end);
 
+        // Process within transaction to avoid lazy loading
         long totalRides = allRides.size();
         long assignedRides = allRides.stream()
                 .filter(Ride::isAssigned)
@@ -125,34 +167,132 @@ public class RideService {
                 .assignmentRate(totalRides > 0 ? (assignedRides * 100.0 / totalRides) : 0.0)
                 .build();
     }
-//    private final StoragePort storage; // S3/local adapter
-//    private final RideEvidenceRepo repo;
-//    private final AuthContext auth; // to get driverId
-//
-//    public RideEvidenceDTO create(Long rideId, RideEvidenceEventType type, String note,
-//                                  Double lat, Double lng,
-//                                  MultipartFile signature, List<MultipartFile> photos) {
-//        if ((type == RideEvidenceEventType.NO_SHOW || type == RideEvidenceEventType.CANCELLED)
-//                && (note == null || note.isBlank())) {
-//            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "note required for NO_SHOW/CANCELLED");
-//        }
-//
-//        String sigUrl = signature != null && !signature.isEmpty()
-//                ? storage.put(signature, "evidence/signature/") : null;
-//
-//        List<String> photoUrls = Optional.ofNullable(photos).orElse(List.of()).stream()
-//                .filter(p -> p != null && !p.isEmpty())
-//                .limit(3)
-//                .map(p -> storage.put(p, "evidence/photo/"))
-//                .toList();
-//
-//        var entity = repo.save(RideEvidenceEntity.from(rideId, type, note, lat, lng, sigUrl, photoUrls, auth.driverId()));
-//        // (optional) auto-advance status on DROPOFF or set NO_SHOW/CANCELLED here.
-//
-//        return entity.toDto();
-//    }
-//
-//    public List<RideEvidenceDTO> listByRide(Long rideId) { return repo.findAllByRideId(rideId).stream().map(RideEvidenceEntity::toDto).toList(); }
+
+    /**
+     * CRITICAL: Initialize all lazy-loaded entities within transaction
+     */
+    private void initializeRideEntities(Ride ride) {
+        try {
+            // Initialize patient
+            if (ride.getPatient() != null) {
+                Hibernate.initialize(ride.getPatient());
+                // Access key properties to ensure full initialization
+                ride.getPatient().getName();
+                ride.getPatient().getRequiresWheelchair();
+                ride.getPatient().getRequiresStretcher();
+                ride.getPatient().getRequiresOxygen();
+                ride.getPatient().getMobilityLevel();
+
+                // Initialize collections
+                if (ride.getPatient().getMedicalConditions() != null) {
+                    Hibernate.initialize(ride.getPatient().getMedicalConditions());
+                }
+                if (ride.getPatient().getSpecialNeeds() != null) {
+                    Hibernate.initialize(ride.getPatient().getSpecialNeeds());
+                }
+            }
+
+            // Initialize drivers
+            if (ride.getPickupDriver() != null) {
+                Hibernate.initialize(ride.getPickupDriver());
+                ride.getPickupDriver().getName(); // Force access
+                ride.getPickupDriver().getVehicleType();
+                ride.getPickupDriver().getWheelchairAccessible();
+                ride.getPickupDriver().getStretcherCapable();
+                ride.getPickupDriver().getOxygenEquipped();
+            }
+
+            if (ride.getDropoffDriver() != null) {
+                Hibernate.initialize(ride.getDropoffDriver());
+                ride.getDropoffDriver().getName(); // Force access
+            }
+
+            if (ride.getDriver() != null) {
+                Hibernate.initialize(ride.getDriver());
+                ride.getDriver().getName(); // Force access
+            }
+
+            // Initialize location objects
+            if (ride.getPickupLocation() != null) {
+                ride.getPickupLocation().getAddress();
+                ride.getPickupLocation().getLatitude();
+                ride.getPickupLocation().getLongitude();
+            }
+
+            if (ride.getDropoffLocation() != null) {
+                ride.getDropoffLocation().getAddress();
+                ride.getDropoffLocation().getLatitude();
+                ride.getDropoffLocation().getLongitude();
+            }
+
+        } catch (Exception e) {
+            log.warn("Failed to initialize ride {} entities: {}", ride.getId(), e.getMessage());
+        }
+    }
+
+    /**
+     * Safely convert ride to DTO within transaction
+     */
+    private RideDetailDTO safeConvertToDTO(Ride ride) {
+        try {
+            // Ensure entities are initialized
+            initializeRideEntities(ride);
+
+            // Convert to DTO
+            return RideDetailDTO.fromEntity(ride);
+
+        } catch (Exception e) {
+            log.error("Error converting ride {} to DTO: {}", ride.getId(), e.getMessage(), e);
+
+            // Return minimal DTO with available data
+            return RideDetailDTO.builder()
+                    .id(ride.getId())
+                    .pickupTime(ride.getPickupTime())
+                    .dropoffTime(ride.getDropoffTime())
+                    .status(ride.getStatus())
+                    .priority(ride.getPriority())
+                    .requiredVehicleType(ride.getRequiredVehicleType())
+                    .distance(ride.getDistance())
+                    .estimatedDuration(ride.getEstimatedDuration())
+                    .isRoundTrip(ride.getIsRoundTrip())
+                    .build();
+        }
+    }
+
+    /**
+     * Prepare rides for optimization with proper entity initialization
+     */
+    @Transactional(readOnly = true)
+    public List<Ride> prepareRidesForOptimization(List<Long> rideIds) {
+        if (rideIds == null || rideIds.isEmpty()) {
+            return List.of();
+        }
+
+        // Load rides with all associations
+        List<Ride> rides = rideRepository.findByIdInWithPatient(rideIds);
+
+        // Initialize all entities within transaction
+        rides.forEach(this::initializeRideEntities);
+
+        log.info("Prepared {} rides for optimization with all entities initialized", rides.size());
+        return rides;
+    }
+
+    /**
+     * Get rides for optimization in date range
+     */
+    @Transactional(readOnly = true)
+    public List<Ride> findRidesForOptimization(LocalDate date) {
+        LocalDateTime start = date.atStartOfDay();
+        LocalDateTime end = date.plusDays(1).atStartOfDay();
+
+        // Get rides with valid coordinates for optimization
+        List<Ride> rides = rideRepository.findRidesWithValidCoordinatesAndPatient(start, end);
+
+        // Initialize all entities within transaction
+        rides.forEach(this::initializeRideEntities);
+
+        log.info("Found {} rides with valid coordinates for optimization on {}", rides.size(), date);
+        return rides;
+    }
 }
-
-

@@ -1,0 +1,57 @@
+<!-- src/main/resources/db/changelog/004-auth-schema.xml -->
+<databaseChangeLog
+        xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.25.xsd">
+
+    <!-- Unify on table name: app_users (plural) -->
+    <changeSet id="004-01-create-app-users" author="mediroute">
+        <createTable tableName="app_users">
+            <column name="id" type="BIGSERIAL">
+                <constraints primaryKey="true" primaryKeyName="pk_app_users"/>
+            </column>
+            <column name="email" type="varchar(255)">
+                <constraints nullable="false" unique="true" uniqueConstraintName="uq_app_users_email"/>
+            </column>
+            <column name="password_hash" type="varchar(255)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="active" type="boolean" defaultValueBoolean="true">
+                <constraints nullable="false"/>
+            </column>
+            <!-- simple text (comma-separated or JSON) for now -->
+            <column name="roles" type="text">
+                <constraints nullable="false"/>
+            </column>
+            <column name="driver_id" type="bigint"/>
+            <column name="created_at" type="timestamp" defaultValueComputed="CURRENT_TIMESTAMP"/>
+            <column name="updated_at" type="timestamp"/>
+        </createTable>
+        <createIndex tableName="app_users" indexName="idx_app_users_email">
+            <column name="email"/>
+        </createIndex>
+    </changeSet>
+
+    <changeSet id="004-02-create-refresh-tokens" author="mediroute">
+        <createTable tableName="refresh_tokens">
+            <column name="jti" type="varchar(64)">
+                <constraints primaryKey="true" primaryKeyName="pk_refresh_tokens"/>
+            </column>
+            <column name="user_id" type="bigint">
+                <constraints nullable="false"/>
+            </column>
+            <column name="expires_at" type="timestamp">
+                <constraints nullable="false"/>
+            </column>
+            <column name="revoked" type="boolean" defaultValueBoolean="false"/>
+            <column name="rotated_to" type="varchar(64)"/>
+            <column name="user_agent" type="varchar(512)"/>
+            <column name="ip" type="varchar(64)"/>
+            <column name="created_at" type="timestamp" defaultValueComputed="CURRENT_TIMESTAMP"/>
+        </createTable>
+        <createIndex tableName="refresh_tokens" indexName="idx_refresh_tokens_user_id">
+            <column name="user_id"/>
+        </createIndex>
+    </changeSet>
+</databaseChangeLog>

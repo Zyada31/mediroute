@@ -371,4 +371,51 @@ public class DriverService {
             return Math.max(0, maxDailyRides - totalRides);
         }
     }
+
+    /**
+     * Search drivers by name (case-insensitive partial matching)
+     */
+    @Transactional(readOnly = true)
+    public List<Driver> searchDriversByName(String name) {
+        if (name == null || name.trim().isEmpty()) {
+            log.warn("Empty name provided for driver search");
+            return new ArrayList<>();
+        }
+
+        log.info("🔍 Searching for drivers with name containing: '{}'", name);
+
+        // Use the existing repository method for name search
+        List<Driver> matchingDrivers = driverRepository.findByNameContainingIgnoreCase(name.trim());
+
+        // Filter out inactive drivers unless specifically needed
+        List<Driver> activeMatchingDrivers = matchingDrivers.stream()
+                .filter(driver -> Boolean.TRUE.equals(driver.getActive()))
+                .collect(Collectors.toList());
+
+        log.info("✅ Found {} active drivers matching name '{}'", activeMatchingDrivers.size(), name);
+
+        return activeMatchingDrivers;
+    }
+
+    /**
+     * Search all drivers by name (including inactive ones)
+     */
+    @Transactional(readOnly = true)
+    public List<Driver> searchAllDriversByName(String name) {
+        if (name == null || name.trim().isEmpty()) {
+            log.warn("Empty name provided for driver search");
+            return new ArrayList<>();
+        }
+
+        log.info("🔍 Searching for ALL drivers (including inactive) with name containing: '{}'", name);
+
+        List<Driver> matchingDrivers = driverRepository.findByNameContainingIgnoreCase(name.trim());
+
+        log.info("✅ Found {} total drivers matching name '{}'", matchingDrivers.size(), name);
+
+        return matchingDrivers;
+    }
+
+    // ... rest of your existing methods ...
+
 }

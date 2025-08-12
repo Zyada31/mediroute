@@ -7,8 +7,9 @@
     <!-- Include all changelog files -->
     <include file="db/changelog/001-create-initial-schema.xml"/>
     <include file="db/changelog/002-create-indexes.xml"/>
-    <include file="db/changelog/003-add-medical-transport-features.xml"/>
-    <include file="db/changelog/004-create-audit-tables.xml"/>
-    <include file="db/changelog/005-add-constraints.xml"/>
-
+    <include file="db/changelog/004-auth-schema.xml"/>
+    <include file="db/changelog/005-security-tables.xml"/>
+    <include file="db/changelog/003-seed-admin.xml"/>
+    <include file="db/changelog/baseline-schema.sql"/>
 </databaseChangeLog>
+
