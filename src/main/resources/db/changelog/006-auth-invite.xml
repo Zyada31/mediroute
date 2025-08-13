@@ -1,0 +1,32 @@
+<!-- db/changelog/006-auth-invite.xml -->
+<databaseChangeLog>
+
+    <changeSet id="auth-invite" author="you">
+        <createTable tableName="user_invites">
+            <column name="id" type="BIGSERIAL">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="email" type="VARCHAR(255)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="role" type="VARCHAR(64)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="org_id" type="BIGINT"/>
+            <column name="driver_id" type="BIGINT"/>
+            <column name="token_hash" type="VARCHAR(255)">
+                <constraints nullable="false" unique="true"/>
+            </column>
+            <column name="expires_at" type="TIMESTAMP">
+                <constraints nullable="false"/>
+            </column>
+            <column name="used_at" type="TIMESTAMP"/>
+            <column name="created_at" type="TIMESTAMP" defaultValueComputed="CURRENT_TIMESTAMP"/>
+            <column name="created_by" type="BIGINT"/>
+        </createTable>
+
+        <createIndex indexName="idx_user_invites_email" tableName="user_invites">
+            <column name="email"/>
+        </createIndex>
+    </changeSet>
+</databaseChangeLog>

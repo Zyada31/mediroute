@@ -23,6 +23,9 @@ public class AssignmentAudit {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
+    @Column(name = "org_id")
+    private Long orgId;
+
     @Column(name = "assignment_time")
     private LocalDateTime assignmentTime;
 

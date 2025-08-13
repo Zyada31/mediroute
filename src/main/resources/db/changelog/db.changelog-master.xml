@@ -11,5 +11,8 @@
     <include file="db/changelog/005-security-tables.xml"/>
     <include file="db/changelog/003-seed-admin.xml"/>
     <include file="db/changelog/baseline-schema.sql"/>
+    <include file="db/changelog/006-auth-invite.xml"/>
+    <include file="db/changelog/007-auth-mfa.xml"/>
+    <include file="db/changelog/008-optimization-jobs.xml"/>
 </databaseChangeLog>
 

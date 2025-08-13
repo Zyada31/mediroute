@@ -8,6 +8,7 @@ import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.multipart.MaxUploadSizeExceededException;
+import org.springframework.security.access.AccessDeniedException;
 
 import java.net.URI;
 import java.time.LocalDateTime;
@@ -186,6 +187,16 @@ public class GlobalExceptionHandler {
         }
 
         return problemDetail;
+    }
+
+    @ExceptionHandler(AccessDeniedException.class)
+    public ProblemDetail handleAccessDenied(AccessDeniedException ex) {
+        log.warn("Access denied: {}", ex.getMessage());
+        ProblemDetail pd = ProblemDetail.forStatusAndDetail(HttpStatus.FORBIDDEN, "Access denied");
+        pd.setTitle("Forbidden");
+        pd.setType(URI.create(PROBLEM_BASE_URL + "forbidden"));
+        pd.setProperty("timestamp", LocalDateTime.now());
+        return pd;
     }
 
     /**

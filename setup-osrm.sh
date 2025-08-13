@@ -2,9 +2,9 @@
 
 set -e
 
-MAP_NAME="colorado-latest"
-PBF_URL="https://download.geofabrik.de/north-america/us/${MAP_NAME}.osm.pbf"
-DATA_DIR="${HOME}/osrm-data"
+MAP_NAME="${MAP_NAME:-colorado-latest}"
+PBF_URL="${PBF_URL:-https://download.geofabrik.de/north-america/us/${MAP_NAME}.osm.pbf}"
+DATA_DIR="${DATA_DIR:-${HOME}/osrm-data}"
 
 echo "📥 Downloading PBF map to $DATA_DIR..."
 mkdir -p "$DATA_DIR"
@@ -24,6 +24,6 @@ echo "🚦 Running osrm-contract..."
 docker run --rm --platform linux/amd64 -v "$DATA_DIR:/data" osrm/osrm-backend \
   osrm-contract "/data/${MAP_NAME}.osrm"
 
-echo "🚀 Starting OSRM routing server at http://localhost:5000 ..."
+echo "🚀 Starting OSRM routing server at http://localhost:5000 using ${MAP_NAME} ..."
 docker run --rm -t -i -p 5000:5000 --platform linux/amd64 -v "$DATA_DIR:/data" osrm/osrm-backend \
   osrm-routed "/data/${MAP_NAME}.osrm"

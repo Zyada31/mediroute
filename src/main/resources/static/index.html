@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>MediRoute API</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 50px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            background: rgba(255,255,255,0.1);
+            padding: 30px;
+            border-radius: 10px;
+            backdrop-filter: blur(10px);
+        }
+        h1 { color: white; }
+        a {
+            color: #ffd700;
+            text-decoration: none;
+            font-weight: bold;
+        }
+        a:hover { text-decoration: underline; }
+        .links {
+            margin-top: 30px;
+            display: flex;
+            gap: 30px;
+        }
+        .link-card {
+            background: rgba(255,255,255,0.1);
+            padding: 20px;
+            border-radius: 8px;
+            flex: 1;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🚑 MediRoute Medical Transport API</h1>
+        <p>Welcome to the MediRoute API Server v2.0</p>
+        
+        <div class="links">
+            <div class="link-card">
+                <h3>📚 API Documentation</h3>
+                <p><a href="/swagger-ui.html">Swagger UI</a></p>
+                <p><a href="/api-docs">OpenAPI JSON</a></p>
+            </div>
+            
+            <div class="link-card">
+                <h3>🔍 Health Status</h3>
+                <p><a href="/actuator/health">Health Check</a></p>
+                <p><a href="/actuator/info">Application Info</a></p>
+            </div>
+            
+            <div class="link-card">
+                <h3>🎯 Quick Links</h3>
+                <p><a href="/api/v1/drivers">Drivers API</a></p>
+                <p><a href="/api/v1/rides">Rides API</a></p>
+            </div>
+        </div>
+    </div>
+</body>
+</html>

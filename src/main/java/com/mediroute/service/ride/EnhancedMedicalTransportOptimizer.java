@@ -14,6 +14,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.hibernate.Hibernate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import static com.mediroute.config.SecurityBeans.currentOrgId;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -28,12 +29,12 @@ public class EnhancedMedicalTransportOptimizer {
 
     private final RideRepository rideRepository;
     private final DriverRepository driverRepository;
-    private final OsrmDistanceService distanceService;
+    private final OsrmDistanceService distanceService; // reserved for future distance-based scoring enhancements
     private final AssignmentAuditRepository assignmentAuditRepository;
 
     // Medical transport constants
     private static final int SHORT_APPOINTMENT_THRESHOLD = 15;
-    private static final int OPTIMIZATION_TIMEOUT_SECONDS = 45;
+    // private static final int OPTIMIZATION_TIMEOUT_SECONDS = 45; // reserved
     private static final double EARTH_RADIUS_KM = 6371.0;
     private static final double MAX_PICKUP_DISTANCE_KM = 50.0;
     private static final double PREFERRED_PICKUP_DISTANCE_KM = 15.0;
@@ -402,8 +403,8 @@ public class EnhancedMedicalTransportOptimizer {
 
     @Transactional(readOnly = true)
     public List<Driver> getQualifiedDrivers() {
-        return driverRepository.findByActiveTrue().stream()
-                .filter(driver -> Boolean.TRUE.equals(driver.getIsTrainingComplete()))
+        Long org = currentOrgId();
+        return driverRepository.findByOrgIdAndActiveTrueAndIsTrainingCompleteTrue(org).stream()
                 .filter(driver -> !isLicenseExpiringSoon(driver))
                 .collect(Collectors.toList());
     }
@@ -599,6 +600,8 @@ public class EnhancedMedicalTransportOptimizer {
         try {
             AssignmentAudit audit = new AssignmentAudit();
             audit.setAssignmentTime(LocalDateTime.now());
+            Long org = currentOrgId();
+            if (org != null) audit.setOrgId(org);
             audit.setBatchId(batchId);
             audit.setAssignmentDate(rides.isEmpty() ? LocalDate.now() : rides.get(0).getPickupTime().toLocalDate());
             audit.setTotalRides(rides.size());

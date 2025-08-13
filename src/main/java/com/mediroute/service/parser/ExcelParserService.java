@@ -12,9 +12,11 @@ import com.mediroute.service.ride.EnhancedMedicalTransportOptimizer;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.poi.ss.usermodel.*;
+import org.apache.poi.ss.usermodel.DataFormatter;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
+import static com.mediroute.config.SecurityBeans.currentOrgId;
 
 import java.io.BufferedReader;
 import java.io.IOException;
@@ -207,7 +209,7 @@ public class ExcelParserService {
             }
 
             // Find or create patient
-            Patient patient = findOrCreatePatient(name, phone);
+        Patient patient = findOrCreatePatient(name, phone);
 
             // Parse pickup time
             LocalDateTime pickupTime = parseDateTime(timeStr, assignmentDate);
@@ -225,6 +227,10 @@ public class ExcelParserService {
                     .priority(determinePriority(purpose))
                     .status(RideStatus.SCHEDULED)
                     .build();
+            Long org = currentOrgId();
+            if (org != null) {
+                ride.setOrgId(org);
+            }
 
             // Handle return trip logic
             boolean isRoundTrip = !isBlank(returnTrip) && parseBoolean(returnTrip);
@@ -244,6 +250,8 @@ public class ExcelParserService {
 
             // Set time windows (±5 minutes default)
             ride.setPickupTimeWindow(pickupTime, 5);
+            // Unassigned initially means SCHEDULED (no driver assigned yet)
+            ride.setStatus(RideStatus.SCHEDULED);
 
             // Handle notes and special requirements
             if (!isBlank(notes)) {
@@ -298,6 +306,10 @@ public class ExcelParserService {
                 .dropoffLocation(createLocation(dropoff))
                 .status(RideStatus.SCHEDULED)
                 .build();
+        Long org = currentOrgId();
+        if (org != null) {
+            ride.setOrgId(org);
+        }
 
         // Parse time
         parsePickupTime(ride, row, headerMap, assignmentDate);
@@ -305,8 +317,9 @@ public class ExcelParserService {
         // Parse medical transport specific fields
         parseMedicalTransportFields(ride, row, headerMap);
 
-        // Set time windows automatically
+        // Set time windows automatically and ensure unassigned status
         setDefaultTimeWindows(ride);
+        ride.setStatus(RideStatus.SCHEDULED);
 
         // Determine vehicle requirements based on patient needs
         setVehicleRequirements(ride);
@@ -397,7 +410,10 @@ public class ExcelParserService {
     }
 
     private Patient findOrCreatePatient(String name, String phone) {
-        Optional<Patient> existingPatient = patientRepository.findByPhone(phone);
+        Long org = currentOrgId();
+        Optional<Patient> existingPatient = (org != null)
+                ? patientRepository.findByPhoneAndOrgId(phone, org)
+                : patientRepository.findByPhone(phone);
 
         if (existingPatient.isPresent()) {
             log.debug("👤 Found existing patient: {}", name);
@@ -410,12 +426,16 @@ public class ExcelParserService {
                 .phone(phone)
                 .isActive(true)
                 .build();
+        if (org != null) patient.setOrgId(org);
 
         return patientRepository.save(patient);
     }
 
     private Patient findOrCreateEnhancedPatient(Row row, Map<String, Integer> headerMap, String name, String phone) {
-        Optional<Patient> existingPatient = patientRepository.findByPhone(phone);
+        Long org = currentOrgId();
+        Optional<Patient> existingPatient = (org != null)
+                ? patientRepository.findByPhoneAndOrgId(phone, org)
+                : patientRepository.findByPhone(phone);
 
         Patient patient;
         if (existingPatient.isPresent()) {
@@ -427,6 +447,7 @@ public class ExcelParserService {
                     .phone(phone)
                     .isActive(true)
                     .build();
+            if (org != null) patient.setOrgId(org);
             log.debug("👤 Creating new patient: {}", name);
         }
 
@@ -903,11 +924,8 @@ public class ExcelParserService {
 
     private String getCellValue(Cell cell) {
         if (cell == null) return "";
-        return switch (cell.getCellType()) {
-            case STRING -> cell.getStringCellValue().trim();
-            case NUMERIC -> String.valueOf(cell.getNumericCellValue());
-            case BOOLEAN -> String.valueOf(cell.getBooleanCellValue());
-            default -> "";
-        };
+        // Use DataFormatter to preserve human-readable content (avoids scientific notation on phones)
+        DataFormatter formatter = new DataFormatter();
+        return formatter.formatCellValue(cell).trim();
     }
 }

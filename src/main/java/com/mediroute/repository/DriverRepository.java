@@ -25,15 +25,16 @@ public interface DriverRepository extends BaseRepository<Driver, Long> {
 
     // ========== BASIC QUERIES (WORKING) ==========
 
-    List<Driver> findByActiveTrue();
+    List<Driver> findByOrgIdAndActiveTrue(Long orgId);
 
-    List<Driver> findByActiveTrueAndIsTrainingCompleteTrue();
+    List<Driver> findByOrgIdAndActiveTrueAndIsTrainingCompleteTrue(Long orgId);
 
     List<Driver> findByNameContainingIgnoreCase(String name);
 
     List<Driver> findByPhone(String phone);
 
     Optional<Driver> findByNameAndPhone(String name, String phone);
+    Optional<Driver> findByIdAndOrgId(Long id, Long orgId);
 
     // ========== VEHICLE TYPE QUERIES (WORKING) ==========
 

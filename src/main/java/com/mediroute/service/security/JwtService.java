@@ -86,6 +86,8 @@ public class JwtService {
         claims.put("email", user.getEmail());
         claims.put("roles", user.getRoles());             // List<String>
         if (user.getDriverId() != null) claims.put("driverId", user.getDriverId());
+        // Optional org scope if available via AppUserView extension
+        // no-op here; add when user view exposes orgId
         if (user.getName() != null) claims.put("name", user.getName());
         claims.put("type", "access");
         claims.put("jti", UUID.randomUUID().toString());
@@ -105,6 +107,12 @@ public class JwtService {
         claims.put("email", user.getEmail());
         claims.put("roles", user.getRoles() == null ? List.of() : user.getRoles());
         if (user.getDriverId() != null) claims.put("driverId", user.getDriverId());
+        // If AppUserView provides orgId, include it for scoping
+        try {
+            var m = user.getClass().getMethod("getOrgId");
+            Object orgId = m.invoke(user);
+            if (orgId != null) claims.put("orgId", orgId);
+        } catch (Exception ignored) {}
         if (user.getName() != null) claims.put("name", user.getName());
         claims.put("type", "access");
         claims.put("jti", UUID.randomUUID().toString());

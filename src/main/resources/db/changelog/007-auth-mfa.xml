@@ -1,0 +1,14 @@
+<!-- db/changelog/007-auth-mfa.xml -->
+<databaseChangeLog>
+
+    <changeSet id="auth-mfa-cols" author="you">
+        <addColumn tableName="app_users">
+            <column name="mfa_totp_secret" type="varchar(128)"/>
+        </addColumn>
+        <addColumn tableName="app_users">
+            <column name="mfa_enabled" type="boolean" defaultValueBoolean="false">
+                <constraints nullable="false"/>
+            </column>
+        </addColumn>
+    </changeSet>
+</databaseChangeLog>

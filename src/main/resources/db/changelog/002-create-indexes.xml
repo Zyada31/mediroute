@@ -1,12 +1,12 @@
 
 <?xml version="1.0" encoding="UTF-8"?>
-<databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
-                   xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-                   xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
-                   http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.25.xsd">
+<databaseChangeLog>
 
     <!-- Patient Indexes -->
     <changeSet id="001-create-patient-indexes" author="mediroute">
+        <createIndex tableName="patients" indexName="idx_patients_org">
+            <column name="org_id"/>
+        </createIndex>
         <createIndex tableName="patients" indexName="idx_patients_phone">
             <column name="phone"/>
         </createIndex>
@@ -22,6 +22,9 @@
 
     <!-- Driver Indexes -->
     <changeSet id="002-create-driver-indexes" author="mediroute">
+        <createIndex tableName="drivers" indexName="idx_drivers_org">
+            <column name="org_id"/>
+        </createIndex>
         <createIndex tableName="drivers" indexName="idx_drivers_active">
             <column name="active"/>
         </createIndex>
@@ -44,6 +47,9 @@
 
     <!-- Ride Indexes -->
     <changeSet id="003-create-ride-indexes" author="mediroute">
+        <createIndex tableName="rides" indexName="idx_rides_org">
+            <column name="org_id"/>
+        </createIndex>
         <createIndex tableName="rides" indexName="idx_rides_pickup_time">
             <column name="pickup_time"/>
         </createIndex>
@@ -68,6 +74,29 @@
         <createIndex tableName="rides" indexName="idx_rides_driver_time">
             <column name="pickup_driver_id"/>
             <column name="pickup_time"/>
+        </createIndex>
+
+        <!-- Frequently queried unassigned rides by date -->
+        <createIndex tableName="rides" indexName="idx_rides_date_status">
+            <column name="pickup_time"/>
+            <column name="status"/>
+        </createIndex>
+    </changeSet>
+
+    <!-- Assignment Audit org index -->
+    <changeSet id="004-assignment-audit-org-index" author="mediroute">
+        <createIndex tableName="assignment_audit" indexName="idx_assignment_audit_org">
+            <column name="org_id"/>
+        </createIndex>
+    </changeSet>
+
+    <!-- Auth indexes -->
+    <changeSet id="004-auth-indexes" author="mediroute">
+        <createIndex tableName="app_users" indexName="idx_app_users_active">
+            <column name="active"/>
+        </createIndex>
+        <createIndex tableName="refresh_tokens" indexName="idx_refresh_tokens_revoked">
+            <column name="revoked"/>
         </createIndex>
     </changeSet>
 

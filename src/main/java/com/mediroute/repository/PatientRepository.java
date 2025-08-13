@@ -16,6 +16,7 @@ import java.util.Optional;
 public interface PatientRepository extends BaseRepository<Patient, Long> {
 
     Optional<Patient> findByPhone(String phone);
+    Optional<Patient> findByPhoneAndOrgId(String phone, Long orgId);
     Optional<Patient> findByNameAndPhone(String name, String phone);
     List<Patient> findByIsActiveTrue();
     List<Patient> findByNameContainingIgnoreCase(String name);

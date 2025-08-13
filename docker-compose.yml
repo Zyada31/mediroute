@@ -1,0 +1,121 @@
+services:
+  postgres:
+    image: postgres:15
+    container_name: mediroute_postgres
+    environment:
+      POSTGRES_DB: mediroute
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7
+    container_name: mediroute_redis
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  osrm:
+    image: ghcr.io/project-osrm/osrm-backend:latest
+    container_name: mediroute_osrm
+    # Start OSRM using the selected map dataset
+    command: >-
+      sh -lc 'MN=$${MAP_NAME:-colorado-latest}; osrm-routed --algorithm mld /data/osrm/$$MN.osrm'
+    environment:
+      # Configure which region to use; ensure corresponding .osrm files exist in OSRM_DATA_DIR
+      MAP_NAME: ${MAP_NAME:-colorado-latest}
+    volumes:
+      # Mount preprocessed OSRM data directory
+      - ${OSRM_DATA_DIR:-./osrm-data}:/data/osrm
+    ports:
+      - "5000:5000"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:5000"]
+      interval: 30s
+      timeout: 5s
+      retries: 10
+
+  osrm-download:
+    image: curlimages/curl:8.9.1
+    container_name: mediroute_osrm_download
+    profiles: ["prep"]
+    environment:
+      MAP_NAME: ${MAP_NAME:-colorado-latest}
+      OSRM_DATA_DIR: ${OSRM_DATA_DIR:-/data}
+      # PBF_URL can be overridden; if empty, it will be computed in command from MAP_NAME
+      PBF_URL: ${PBF_URL:-}
+    volumes:
+      - ${OSRM_DATA_DIR:-./osrm-data}:/data
+    entrypoint: ["sh","-lc"]
+    command: >-
+      'set -e; mkdir -p "$$OSRM_DATA_DIR";
+      PBF_URL_COMPUTED=$${PBF_URL:-https://download.geofabrik.de/north-america/us/$$MAP_NAME.osm.pbf};
+      echo "Downloading $$PBF_URL_COMPUTED to $$OSRM_DATA_DIR/$$MAP_NAME.osm.pbf";
+      if [ ! -f "$$OSRM_DATA_DIR/$$MAP_NAME.osm.pbf" ]; then
+        curl -L "$$PBF_URL_COMPUTED" -o "$$OSRM_DATA_DIR/$$MAP_NAME.osm.pbf";
+      else
+        echo "PBF already exists, skipping";
+      fi'
+
+  osrm-prepare:
+    image: ghcr.io/project-osrm/osrm-backend:latest
+    container_name: mediroute_osrm_prepare
+    profiles: ["prep"]
+    environment:
+      MAP_NAME: ${MAP_NAME:-colorado-latest}
+      OSRM_DATA_DIR: ${OSRM_DATA_DIR:-/data}
+    volumes:
+      - ${OSRM_DATA_DIR:-./osrm-data}:/data
+    entrypoint: ["sh","-lc"]
+    command: >-
+      'set -e;
+      echo Running osrm-extract on /data/$$MAP_NAME.osm.pbf;
+      osrm-extract -p /opt/car.lua "/data/$$MAP_NAME.osm.pbf";
+      echo Running osrm-partition/osrm-customize if available, else osrm-contract;
+      if command -v osrm-partition >/dev/null 2>&1; then
+        osrm-partition "/data/$$MAP_NAME.osrm" && osrm-customize "/data/$$MAP_NAME.osrm";
+      else
+        osrm-contract "/data/$$MAP_NAME.osrm";
+      fi;
+      echo OSRM dataset prepared in /data'
+
+  app:
+    image: maven:3.9-eclipse-temurin-21
+    container_name: mediroute_app
+    working_dir: /workspace
+    volumes:
+      - ./:/workspace
+    environment:
+      SPRING_PROFILES_ACTIVE: dev
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/mediroute
+      SPRING_DATASOURCE_USERNAME: postgres
+      SPRING_DATASOURCE_PASSWORD: postgres
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      GOOGLE_API_KEY: ${GOOGLE_API_KEY:-}
+      OSRM_BASE_URL: http://osrm:5000
+      JWT_PRIVATE_PEM: ${JWT_PRIVATE_PEM:-}
+      JWT_PUBLIC_PEM: ${JWT_PUBLIC_PEM:-}
+    command: mvn -q -DskipTests spring-boot:run
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+volumes:
+  pg_data:
