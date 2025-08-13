@@ -8,6 +8,11 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
+import org.springframework.cache.annotation.Cacheable;
+import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
+import io.github.resilience4j.retry.annotation.Retry;
+import io.github.resilience4j.ratelimiter.annotation.RateLimiter;
+import io.github.resilience4j.bulkhead.annotation.Bulkhead;
 
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
@@ -140,6 +145,11 @@ public class OsrmDistanceService implements DistanceService {
     }
 
     @Override
+    @Cacheable(cacheNames = "osrm:distance", key = "#root.target.normalize(#origin) + '->' + #root.target.normalize(#destination)")
+    @CircuitBreaker(name = "osrm", fallbackMethod = "fallbackDistance")
+    @Retry(name = "osrm")
+    @RateLimiter(name = "osrm")
+    @Bulkhead(name = "osrm")
     public int getDistanceInMeters(String origin, String destination) {
         try {
             String coords = URLEncoder.encode(origin, StandardCharsets.UTF_8) + ";" +
@@ -150,8 +160,26 @@ public class OsrmDistanceService implements DistanceService {
 
             return json.get("routes").get(0).get("distance").asInt();
         } catch (Exception e) {
-            log.error("❌ Failed to fetch single distance from OSRM: {}", e.getMessage());
+            log.warn("OSRM distance fallback for single-leg: {}", e.getMessage());
             return 10000; // 10km default
+        }
+    }
+
+    // Fallback signature must match method args plus Throwable at the end
+    private int fallbackDistance(String origin, String destination, Throwable t) {
+        log.warn("Using fallback distance for {} -> {} due to: {}", origin, destination, t.toString());
+        return 10000;
+    }
+
+    // Normalize coordinates (round to ~5 decimal places ~1m) to improve cache hit rate
+    public String normalize(String coord) {
+        try {
+            String[] parts = coord.split(",");
+            double lat = Double.parseDouble(parts[0]);
+            double lng = Double.parseDouble(parts[1]);
+            return String.format(java.util.Locale.US, "%.5f,%.5f", lat, lng);
+        } catch (Exception e) {
+            return coord;
         }
     }
 
@@ -178,7 +206,7 @@ public class OsrmDistanceService implements DistanceService {
             }
             return matrix;
         } catch (Exception e) {
-            log.error("❌ Failed to fetch many-to-many matrix from OSRM: {}", e.getMessage());
+            log.warn("OSRM distance fallback for matrix: {}", e.getMessage());
 
             // Return default matrix
             int[][] defaultMatrix = new int[origins.size()][destinations.size()];

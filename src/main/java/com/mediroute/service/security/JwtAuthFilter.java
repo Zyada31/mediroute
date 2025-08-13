@@ -28,11 +28,25 @@ public class JwtAuthFilter extends OncePerRequestFilter {
             try {
                 Map<String,Object> claims = jwt.parseAndValidate(token);
 
-                @SuppressWarnings("unchecked")
-                List<String> roles = (List<String>) claims.getOrDefault("roles", List.of());
-                var authorities = roles.stream()
-                        .map(r -> new SimpleGrantedAuthority("ROLE_" + r))
-                        .toList();
+                List<SimpleGrantedAuthority> authorities = List.of();
+                Object rolesClaim = claims.get("roles");
+                if (rolesClaim instanceof List<?> list) {
+                    authorities = list.stream()
+                            .map(Object::toString)
+                            .map(this::normalizeRole)
+                            .filter(s -> !s.isBlank())
+                            .map(s -> new SimpleGrantedAuthority("ROLE_" + s))
+                            .toList();
+                } else if (rolesClaim instanceof String s) {
+                    // Try to handle CSV or JSON array stored as string
+                    String cleaned = s.replace('[',' ').replace(']',' ').replace('"',' ');
+                    authorities = java.util.Arrays.stream(cleaned.split(","))
+                            .map(String::trim)
+                            .map(this::normalizeRole)
+                            .filter(str -> !str.isBlank())
+                            .map(str -> new SimpleGrantedAuthority("ROLE_" + str))
+                            .toList();
+                }
 
                 String subject = (String) claims.getOrDefault("sub", "user");
                 var authentication =
@@ -40,9 +54,15 @@ public class JwtAuthFilter extends OncePerRequestFilter {
 
                 // attach driverId if present (for downstream controllers)
                 Object driverId = claims.get("driverId");
+                Object orgId = claims.get("orgId");
                 if (driverId != null) {
                     Map<String,Object> details = new HashMap<>();
                     details.put("driverId", driverId);
+                    if (orgId != null) details.put("orgId", orgId);
+                    authentication.setDetails(details);
+                } else if (orgId != null) {
+                    Map<String,Object> details = new HashMap<>();
+                    details.put("orgId", orgId);
                     authentication.setDetails(details);
                 }
 
@@ -54,5 +74,15 @@ public class JwtAuthFilter extends OncePerRequestFilter {
         }
 
         chain.doFilter(req, res);
+    }
+
+    private String normalizeRole(String raw) {
+        if (raw == null) return "";
+        String r = raw.trim();
+        // Strip quotes/brackets and keep uppercase letters and underscore
+        r = r.replace("\"", "").replace("'", "").replace("[", "").replace("]", "");
+        r = r.toUpperCase();
+        r = r.replaceAll("[^A-Z_]", "");
+        return r;
     }
 }

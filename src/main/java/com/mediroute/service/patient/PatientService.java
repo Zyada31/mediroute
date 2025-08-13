@@ -17,6 +17,7 @@ import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import static com.mediroute.config.SecurityBeans.currentOrgId;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -91,9 +92,11 @@ public class PatientService implements BaseService<Patient, Long> {
     public Patient createPatient(PatientDTO createDTO) {
         log.info("Creating new patient: {}", createDTO.getName());
 
-        // Check for duplicates
-        Optional<Patient> existingPatient = patientRepository.findByNameAndPhone(
-                createDTO.getName(), createDTO.getPhone());
+        // Check for duplicates within org
+        Long org = currentOrgId();
+        Optional<Patient> existingPatient = (org != null)
+                ? patientRepository.findByPhoneAndOrgId(createDTO.getPhone(), org)
+                : patientRepository.findByNameAndPhone(createDTO.getName(), createDTO.getPhone());
 
         if (existingPatient.isPresent()) {
             log.warn("Patient already exists with name: {} and phone: {}",
@@ -116,6 +119,7 @@ public class PatientService implements BaseService<Patient, Long> {
                 .dateOfBirth(createDTO.getDateOfBirth())
                 .isActive(true)
                 .build();
+        if (org != null) patient.setOrgId(org);
 
         return save(patient);
     }

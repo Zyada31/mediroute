@@ -1,0 +1,262 @@
+{
+  "info": {
+    "name": "MediRoute API",
+    "_postman_id": "e2f9b5a0-9d3a-4b9f-8a3c-d4b7059d0001",
+    "description": "Postman collection for MediRoute backend with bearer token applied globally. Set the collection variables 'baseUrl' and 'token'. Login/activate endpoints override auth (noauth).",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{token}}",
+        "type": "string"
+      }
+    ]
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:8080", "type": "string" },
+    { "key": "token",  "value": "", "type": "string" }
+  ],
+  "item": [
+    {
+      "name": "Auth",
+      "item": [
+        {
+          "name": "Activate (invite token)",
+          "request": {
+            "method": "POST",
+            "auth": { "type": "noauth" },
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": { "raw": "{{baseUrl}}/api/v1/auth/activate", "host": ["{{baseUrl}}"], "path": ["api","v1","auth","activate"] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"token\": \"rawtoken.suffix\",\n  \"password\": \"NewStrongP@ssw0rd\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Login (with optional TOTP)",
+          "request": {
+            "method": "POST",
+            "auth": { "type": "noauth" },
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": { "raw": "{{baseUrl}}/api/v1/auth/login", "host": ["{{baseUrl}}"], "path": ["api","v1","auth","login"] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"admin@mediroute.com\",\n  \"password\": \"admin123\",\n  \"totp\": \"123456\"\n}"
+            },
+            "description": "Response includes accessToken. Copy it to {{token}}."
+          }
+        },
+        {
+          "name": "Refresh",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/api/v1/auth/refresh", "host": ["{{baseUrl}}"], "path": ["api","v1","auth","refresh"] },
+            "description": "Uses refresh_token cookie set at login to mint new access token."
+          }
+        },
+        {
+          "name": "Logout",
+          "request": {
+            "method": "POST",
+            "url": { "raw": "{{baseUrl}}/api/v1/auth/logout", "host": ["{{baseUrl}}"], "path": ["api","v1","auth","logout"] }
+          }
+        },
+        {
+          "name": "MFA TOTP - Setup",
+          "request": {
+            "method": "POST",
+            "url": { "raw": "{{baseUrl}}/api/v1/auth/mfa/totp/setup", "host": ["{{baseUrl}}"], "path": ["api","v1","auth","mfa","totp","setup"] }
+          }
+        },
+        {
+          "name": "MFA TOTP - Verify",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": { "raw": "{{baseUrl}}/api/v1/auth/mfa/totp/verify", "host": ["{{baseUrl}}"], "path": ["api","v1","auth","mfa","totp","verify"] },
+            "body": { "mode": "raw", "raw": "{ \"code\": \"123456\" }" }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Admin / Users",
+      "item": [
+        {
+          "name": "Invite User",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": { "raw": "{{baseUrl}}/v1/users/invite", "host": ["{{baseUrl}}"], "path": ["v1","users","invite"] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"driver1@example.com\",\n  \"role\": \"DRIVER\",\n  \"orgId\": 1,\n  \"driverId\": 1001\n}"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Drivers",
+      "item": [
+        {
+          "name": "Create Driver",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": { "raw": "{{baseUrl}}/api/v1/drivers", "host": ["{{baseUrl}}"], "path": ["api","v1","drivers"] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Jane Doe\",\n  \"email\": \"jane@example.com\",\n  \"phone\": \"+12025550123\",\n  \"vehicleType\": \"VAN\",\n  \"vehicleCapacity\": 4,\n  \"wheelchairAccessible\": true,\n  \"stretcherCapable\": false,\n  \"oxygenEquipped\": false,\n  \"baseLocation\": \"123 Main St, Denver, CO\",\n  \"baseLat\": 39.7392,\n  \"baseLng\": -104.9903,\n  \"maxDailyRides\": 10\n}"
+            }
+          }
+        },
+        {
+          "name": "Update Driver",
+          "request": {
+            "method": "PUT",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": { "raw": "{{baseUrl}}/api/v1/drivers/1", "host": ["{{baseUrl}}"], "path": ["api","v1","drivers","1"] },
+            "body": { "mode": "raw", "raw": "{ \"vehicleCapacity\": 6, \"active\": true }" }
+          }
+        },
+        {
+          "name": "Get All Drivers",
+          "request": { "method": "GET", "url": { "raw": "{{baseUrl}}/api/v1/drivers", "host": ["{{baseUrl}}"], "path": ["api","v1","drivers"] } }
+        },
+        {
+          "name": "Get Driver by ID",
+          "request": { "method": "GET", "url": { "raw": "{{baseUrl}}/api/v1/drivers/1", "host": ["{{baseUrl}}"], "path": ["api","v1","drivers","1"] } }
+        },
+        {
+          "name": "Search Driver (by id or name)",
+          "request": { "method": "GET", "url": { "raw": "{{baseUrl}}/api/v1/drivers/search?id=1", "host": ["{{baseUrl}}"], "path": ["api","v1","drivers","search"], "query":[{"key":"id","value":"1"}] } }
+        },
+        {
+          "name": "Driver Daily Summary",
+          "request": { "method": "GET", "url": { "raw": "{{baseUrl}}/api/v1/drivers/1/daily-summary?date=2025-01-15", "host": ["{{baseUrl}}"], "path": ["api","v1","drivers","1","daily-summary"], "query":[{"key":"date","value":"2025-01-15"}] } }
+        },
+        {
+          "name": "Driver Stats (admin/dispatch)",
+          "request": { "method": "GET", "url": { "raw": "{{baseUrl}}/api/v1/drivers/statistics", "host": ["{{baseUrl}}"], "path": ["api","v1","drivers","statistics"] } }
+        },
+        {
+          "name": "Rides by Driver or All (with date)",
+          "request": {
+            "method": "GET",
+            "url": { "raw": "{{baseUrl}}/api/v1/drivers/rides?driverId=1&date=2025-01-15", "host": ["{{baseUrl}}"], "path": ["api","v1","drivers","rides"], "query":[{"key":"driverId","value":"1"},{"key":"date","value":"2025-01-15"}] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Rides & Uploads",
+      "item": [
+        {
+          "name": "Upload Rides (file)",
+          "request": {
+            "method": "POST",
+            "url": { "raw": "{{baseUrl}}/api/v1/rides/upload", "host": ["{{baseUrl}}"], "path": ["api","v1","rides","upload"] },
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                { "key": "file", "type": "file", "src": "" },
+                { "key": "assignmentDate", "type": "text", "value": "2025-01-15" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Upload & Optimize (file)",
+          "request": {
+            "method": "POST",
+            "url": { "raw": "{{baseUrl}}/api/v1/rides/upload-and-optimize", "host": ["{{baseUrl}}"], "path": ["api","v1","rides","upload-and-optimize"] },
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                { "key": "file", "type": "file", "src": "" },
+                { "key": "assignmentDate", "type": "text", "value": "2025-01-15" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get Rides by Date",
+          "request": { "method": "GET", "url": { "raw": "{{baseUrl}}/api/v1/rides/date/2025-01-15", "host": ["{{baseUrl}}"], "path": ["api","v1","rides","date","2025-01-15"] } }
+        },
+        {
+          "name": "Get Unassigned Rides (by date)",
+          "request": { "method": "GET", "url": { "raw": "{{baseUrl}}/api/v1/rides/unassigned?date=2025-01-15", "host": ["{{baseUrl}}"], "path": ["api","v1","rides","unassigned"], "query":[{"key":"date","value":"2025-01-15"}] } }
+        }
+      ]
+    },
+    {
+      "name": "Optimization",
+      "item": [
+        {
+          "name": "Optimize for Date",
+          "request": { "method": "POST", "url": { "raw": "{{baseUrl}}/api/v1/optimization/date/2025-01-15", "host": ["{{baseUrl}}"], "path": ["api","v1","optimization","date","2025-01-15"] } }
+        },
+        {
+          "name": "Optimize Specific Rides",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": { "raw": "{{baseUrl}}/api/v1/optimization/rides", "host": ["{{baseUrl}}"], "path": ["api","v1","optimization","rides"] },
+            "body": { "mode": "raw", "raw": "[1,2,3]" }
+          }
+        },
+        {
+          "name": "Optimize Time Range",
+          "request": {
+            "method": "POST",
+            "url": { "raw": "{{baseUrl}}/api/v1/optimization/timerange?startTime=2025-01-15T08:00:00&endTime=2025-01-15T12:00:00", "host": ["{{baseUrl}}"], "path": ["api","v1","optimization","timerange"], "query":[{"key":"startTime","value":"2025-01-15T08:00:00"},{"key":"endTime","value":"2025-01-15T12:00:00"}] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Statistics",
+      "item": [
+        {
+          "name": "Ride Statistics (by date)",
+          "request": { "method": "GET", "url": { "raw": "{{baseUrl}}/api/v1/statistics/rides?date=2025-01-15", "host": ["{{baseUrl}}"], "path": ["api","v1","statistics","rides"], "query":[{"key":"date","value":"2025-01-15"}] } }
+        },
+        {
+          "name": "Driver Statistics (admin/dispatch)",
+          "request": { "method": "GET", "url": { "raw": "{{baseUrl}}/api/v1/statistics/drivers", "host": ["{{baseUrl}}"], "path": ["api","v1","statistics","drivers"] } }
+        },
+        {
+          "name": "Optimization Statistics (by date, admin/dispatch)",
+          "request": { "method": "GET", "url": { "raw": "{{baseUrl}}/api/v1/statistics/optimization?date=2025-01-15", "host": ["{{baseUrl}}"], "path": ["api","v1","statistics","optimization"], "query":[{"key":"date","value":"2025-01-15"}] } }
+        }
+      ]
+    },
+    {
+      "name": "Audit",
+      "item": [
+        {
+          "name": "Ride Audit (by rideId)",
+          "request": { "method": "GET", "url": { "raw": "{{baseUrl}}/api/v1/rides/1/audit", "host": ["{{baseUrl}}"], "path": ["api","v1","rides","1","audit"] } }
+        },
+        {
+          "name": "Assignment Audit (range)",
+          "request": {
+            "method": "GET",
+            "url": { "raw": "{{baseUrl}}/api/v1/assignment/audit?startDate=2025-01-01&endDate=2025-01-31", "host": ["{{baseUrl}}"], "path": ["api","v1","assignment","audit"], "query":[{"key":"startDate","value":"2025-01-01"},{"key":"endDate","value":"2025-01-31"}] }
+          }
+        },
+        {
+          "name": "Assignment Audit (by batchId)",
+          "request": { "method": "GET", "url": { "raw": "{{baseUrl}}/api/v1/assignment/audit/BATCH-123", "host": ["{{baseUrl}}"], "path": ["api","v1","assignment","audit","BATCH-123"] } }
+        }
+      ]
+    }
+
+  ]
+}

@@ -6,7 +6,10 @@ import com.mediroute.repository.RideRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.hibernate.Hibernate;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
+import static com.mediroute.config.SecurityBeans.currentOrgId;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDate;
@@ -47,6 +50,18 @@ public class RideService {
                 .collect(Collectors.toList());
     }
 
+    // Pageable variants for API listing
+    @Transactional(readOnly = true)
+    public Page<Ride> findRidesByDatePaged(LocalDate date, Pageable pageable) {
+        LocalDateTime start = date.atStartOfDay();
+        LocalDateTime end = date.plusDays(1).atStartOfDay();
+        Long org = currentOrgId();
+        if (org != null) {
+            return rideRepository.findByOrgIdAndPickupTimeBetween(org, start, end, pageable);
+        }
+        return rideRepository.findByPickupTimeBetween(start, end, pageable);
+    }
+
     /**
      * Find rides by date and status with proper initialization
      */
@@ -77,6 +92,19 @@ public class RideService {
         rides.forEach(this::initializeRideEntities);
 
         return rides;
+    }
+
+    @Transactional(readOnly = true)
+    public Page<Ride> findUnassignedRidesPaged(LocalDate date, Pageable pageable) {
+        LocalDateTime start = date.atStartOfDay();
+        LocalDateTime end = date.plusDays(1).atStartOfDay();
+        Long org = currentOrgId();
+        if (org != null) {
+            return rideRepository.findByOrgIdAndStatusAndPickupDriverIsNullAndDropoffDriverIsNullAndDriverIsNullAndPickupTimeBetween(
+                    org, RideStatus.SCHEDULED, start, end, pageable);
+        }
+        return rideRepository.findByStatusAndPickupDriverIsNullAndDropoffDriverIsNullAndDriverIsNullAndPickupTimeBetween(
+                RideStatus.SCHEDULED, start, end, pageable);
     }
 
     /**

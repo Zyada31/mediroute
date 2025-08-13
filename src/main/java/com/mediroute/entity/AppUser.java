@@ -33,6 +33,12 @@ public class AppUser {
     @Column(name = "driver_id")
     private Long driverId;
 
+    @Column(name = "mfa_enabled")
+    private Boolean mfaEnabled;
+
+    @Column(name = "mfa_totp_secret")
+    private String mfaTotpSecret;
+
     // getters/setters …
     public Long getId() { return id; }
     public String getEmail() { return email; }
@@ -68,4 +74,15 @@ public class AppUser {
                         .distinct()
                         .collect(Collectors.joining(",")));
     }
+
+    public void setOrgId(Long orgId) {
+
+    }
+
+    // MFA getters/setters
+    public Boolean getMfaEnabled() { return mfaEnabled; }
+    public boolean isMfaEnabled() { return Boolean.TRUE.equals(mfaEnabled); }
+    public void setMfaEnabled(boolean enabled) { this.mfaEnabled = enabled; }
+    public String getMfaTotpSecret() { return mfaTotpSecret; }
+    public void setMfaTotpSecret(String mfaTotpSecret) { this.mfaTotpSecret = mfaTotpSecret; }
 }

@@ -16,6 +16,10 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.format.annotation.DateTimeFormat;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.validation.annotation.Validated;
@@ -176,6 +180,7 @@ public class DriverController {
             @ApiResponse(responseCode = "404", description = "Driver not found")
     })
     @GetMapping("/{id}/daily-summary")
+    @PreAuthorize("hasAnyRole('ADMIN','DISPATCHER') or #id == authentication.details['driverId']")
     public ResponseEntity<?> getDriverDailySummary(
             @Parameter(description = "Driver ID", required = true)
             @PathVariable Long id,
@@ -235,6 +240,7 @@ public class DriverController {
     // ========== EXISTING ENDPOINTS (Keep all your existing methods) ==========
 
     @PostMapping
+    @PreAuthorize("hasAnyRole('ADMIN','DISPATCHER')")
     public ResponseEntity<?> createDriver(@Validated(DriverDTO.Create.class) @RequestBody DriverDTO dto) {
         try {
             Driver saved = driverService.createOrUpdateDriver(dto, false);
@@ -257,6 +263,7 @@ public class DriverController {
     }
 
     @PutMapping("/{id}")
+    @PreAuthorize("hasAnyRole('ADMIN','DISPATCHER')")
     public ResponseEntity<?> updateDriver(
             @Parameter(description = "Driver ID") @PathVariable Long id,
             @Validated(DriverDTO.Update.class) @RequestBody DriverDTO dto) {
@@ -284,14 +291,22 @@ public class DriverController {
     }
 
     @GetMapping
-    public ResponseEntity<List<DriverDTO>> getAllDrivers() {
+    @PreAuthorize("hasAnyRole('ADMIN','DISPATCHER')")
+    public ResponseEntity<com.mediroute.dto.PageResponse<DriverDTO>> getAllDrivers(
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "25") int size,
+            @RequestParam(defaultValue = "id,asc") String sort) {
         try {
-            List<Driver> drivers = driverService.listAllDrivers();
-            List<DriverDTO> driverDTOs = drivers.stream()
-                    .map(DriverDTO::fromEntity)
-                    .collect(Collectors.toList());
+            String[] sortParts = sort.split(",");
+            Sort s = (sortParts.length == 2 && sortParts[1].equalsIgnoreCase("desc"))
+                    ? Sort.by(sortParts[0]).descending()
+                    : Sort.by(sortParts[0]).ascending();
+            Pageable pageable = PageRequest.of(page, size, s);
 
-            return ResponseEntity.ok(driverDTOs);
+            Page<Driver> pg = driverService.findAll(pageable);
+            List<DriverDTO> items = pg.getContent().stream().map(DriverDTO::fromEntity).toList();
+            var resp = new com.mediroute.dto.PageResponse<>(items, pg.getNumber(), pg.getSize(), pg.getTotalElements(), pg.getTotalPages(), sort);
+            return ResponseEntity.ok(resp);
         } catch (Exception e) {
             log.error("Error retrieving drivers", e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
@@ -299,6 +314,7 @@ public class DriverController {
     }
 
     @GetMapping("/{id}")
+    @PreAuthorize("hasAnyRole('ADMIN','DISPATCHER') or #id == authentication.details['driverId']")
     public ResponseEntity<DriverDTO> getDriverById(
             @Parameter(description = "Driver ID") @PathVariable Long id) {
         try {
@@ -313,6 +329,7 @@ public class DriverController {
     }
 
     @GetMapping("/statistics")
+    @PreAuthorize("hasAnyRole('ADMIN','DISPATCHER')")
     public ResponseEntity<DriverStatisticsDTO> getDriverStatistics() {
         try {
             var stats = driverService.getDriverStats();

@@ -1,9 +1,5 @@
 <!-- src/main/resources/db/changelog/004-auth-schema.xml -->
-<databaseChangeLog
-        xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
-        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-        xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
-        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.25.xsd">
+<databaseChangeLog>
 
     <!-- Unify on table name: app_users (plural) -->
     <changeSet id="004-01-create-app-users" author="mediroute">
@@ -11,6 +7,7 @@
             <column name="id" type="BIGSERIAL">
                 <constraints primaryKey="true" primaryKeyName="pk_app_users"/>
             </column>
+            <column name="org_id" type="bigint"/>
             <column name="email" type="varchar(255)">
                 <constraints nullable="false" unique="true" uniqueConstraintName="uq_app_users_email"/>
             </column>

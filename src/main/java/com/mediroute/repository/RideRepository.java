@@ -5,6 +5,9 @@ import com.mediroute.dto.Priority;
 import com.mediroute.dto.RideStatus;
 import com.mediroute.entity.Ride;
 import com.mediroute.repository.base.BaseRepository;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
@@ -95,6 +98,25 @@ public interface RideRepository extends BaseRepository<Ride, Long> {
 
     @Query("SELECT r FROM Ride r WHERE r.pickupTime BETWEEN :start AND :end")
     List<Ride> findByPickupTimeBetween(@Param("start") LocalDateTime start, @Param("end") LocalDateTime end);
+
+    // Pageable variants for API listing
+    @EntityGraph(attributePaths = {"patient","pickupDriver","dropoffDriver","driver"})
+    Page<Ride> findByOrgIdAndPickupTimeBetween(Long orgId, LocalDateTime start, LocalDateTime end, Pageable pageable);
+
+    @EntityGraph(attributePaths = {"patient","pickupDriver","dropoffDriver","driver"})
+    Page<Ride> findByOrgIdAndStatusAndPickupTimeBetween(Long orgId, RideStatus status, LocalDateTime start, LocalDateTime end, Pageable pageable);
+
+    @EntityGraph(attributePaths = {"patient","pickupDriver","dropoffDriver","driver"})
+    Page<Ride> findByOrgIdAndStatusAndPickupDriverIsNullAndDropoffDriverIsNullAndDriverIsNullAndPickupTimeBetween(
+            Long orgId, RideStatus status, LocalDateTime start, LocalDateTime end, Pageable pageable);
+
+    // Non-org variants for admin or legacy data (orgId=null)
+    @EntityGraph(attributePaths = {"patient","pickupDriver","dropoffDriver","driver"})
+    Page<Ride> findByPickupTimeBetween(LocalDateTime start, LocalDateTime end, Pageable pageable);
+
+    @EntityGraph(attributePaths = {"patient","pickupDriver","dropoffDriver","driver"})
+    Page<Ride> findByStatusAndPickupDriverIsNullAndDropoffDriverIsNullAndDriverIsNullAndPickupTimeBetween(
+            RideStatus status, LocalDateTime start, LocalDateTime end, Pageable pageable);
 
     // ========== DRIVER ASSIGNMENT QUERIES ==========
 

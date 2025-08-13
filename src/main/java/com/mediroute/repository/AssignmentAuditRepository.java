@@ -17,38 +17,38 @@ import java.util.Optional;
 public interface AssignmentAuditRepository extends BaseRepository<AssignmentAudit, Long> {
 
     // Basic Queries
-    List<AssignmentAudit> findByAssignmentDateOrderByAssignmentTimeDesc(LocalDate assignmentDate);
+    List<AssignmentAudit> findByOrgIdAndAssignmentDateOrderByAssignmentTimeDesc(Long orgId, LocalDate assignmentDate);
 
-    Optional<AssignmentAudit> findByBatchId(String batchId);
+    Optional<AssignmentAudit> findByOrgIdAndBatchId(Long orgId, String batchId);
 
-    List<AssignmentAudit> findByBatchIdContaining(String batchIdPattern);
+    List<AssignmentAudit> findByOrgIdAndBatchIdContaining(Long orgId, String batchIdPattern);
 
     // Date Range Queries
-    List<AssignmentAudit> findByAssignmentTimeBetweenOrderByAssignmentTimeDesc(LocalDateTime start, LocalDateTime end);
+    List<AssignmentAudit> findByOrgIdAndAssignmentTimeBetweenOrderByAssignmentTimeDesc(Long orgId, LocalDateTime start, LocalDateTime end);
 
-    List<AssignmentAudit> findByAssignmentDateBetweenOrderByAssignmentDateDesc(LocalDate startDate, LocalDate endDate);
+    List<AssignmentAudit> findByOrgIdAndAssignmentDateBetweenOrderByAssignmentDateDesc(Long orgId, LocalDate startDate, LocalDate endDate);
 
     // Performance Queries
-    @Query("SELECT a FROM AssignmentAudit a WHERE a.successRate >= :minSuccessRate ORDER BY a.successRate DESC")
-    List<AssignmentAudit> findByMinSuccessRate(@Param("minSuccessRate") Double minSuccessRate);
+    @Query("SELECT a FROM AssignmentAudit a WHERE a.orgId = :orgId AND a.successRate >= :minSuccessRate ORDER BY a.successRate DESC")
+    List<AssignmentAudit> findByMinSuccessRate(@Param("orgId") Long orgId, @Param("minSuccessRate") Double minSuccessRate);
 
-    @Query("SELECT a FROM AssignmentAudit a WHERE a.totalRides >= :minRides ORDER BY a.assignmentTime DESC")
-    List<AssignmentAudit> findByMinRideCount(@Param("minRides") Integer minRides);
+    @Query("SELECT a FROM AssignmentAudit a WHERE a.orgId = :orgId AND a.totalRides >= :minRides ORDER BY a.assignmentTime DESC")
+    List<AssignmentAudit> findByMinRideCount(@Param("orgId") Long orgId, @Param("minRides") Integer minRides);
 
     // Statistics
-    @Query("SELECT AVG(a.successRate) FROM AssignmentAudit a WHERE a.assignmentDate BETWEEN :startDate AND :endDate")
-    Double getAverageSuccessRateForDateRange(@Param("startDate") LocalDate startDate, @Param("endDate") LocalDate endDate);
+    @Query("SELECT AVG(a.successRate) FROM AssignmentAudit a WHERE a.orgId = :orgId AND a.assignmentDate BETWEEN :startDate AND :endDate")
+    Double getAverageSuccessRateForDateRange(@Param("orgId") Long orgId, @Param("startDate") LocalDate startDate, @Param("endDate") LocalDate endDate);
 
-    @Query("SELECT SUM(a.totalRides) FROM AssignmentAudit a WHERE a.assignmentDate = :date")
-    Long getTotalRidesForDate(@Param("date") LocalDate date);
+    @Query("SELECT SUM(a.totalRides) FROM AssignmentAudit a WHERE a.orgId = :orgId AND a.assignmentDate = :date")
+    Long getTotalRidesForDate(@Param("orgId") Long orgId, @Param("date") LocalDate date);
 
-    @Query("SELECT SUM(a.assignedRides) FROM AssignmentAudit a WHERE a.assignmentDate = :date")
-    Long getAssignedRidesForDate(@Param("date") LocalDate date);
+    @Query("SELECT SUM(a.assignedRides) FROM AssignmentAudit a WHERE a.orgId = :orgId AND a.assignmentDate = :date")
+    Long getAssignedRidesForDate(@Param("orgId") Long orgId, @Param("date") LocalDate date);
 
     // Recent Records
-    @Query("SELECT a FROM AssignmentAudit a ORDER BY a.assignmentTime DESC")
-    List<AssignmentAudit> findAllOrderByAssignmentTimeDesc();
+    @Query("SELECT a FROM AssignmentAudit a WHERE a.orgId = :orgId ORDER BY a.assignmentTime DESC")
+    List<AssignmentAudit> findAllOrderByAssignmentTimeDesc(@Param("orgId") Long orgId);
 
-    @Query("SELECT a FROM AssignmentAudit a WHERE a.assignmentTime >= :since ORDER BY a.assignmentTime DESC")
-    List<AssignmentAudit> findRecentAudits(@Param("since") LocalDateTime since);
+    @Query("SELECT a FROM AssignmentAudit a WHERE a.orgId = :orgId AND a.assignmentTime >= :since ORDER BY a.assignmentTime DESC")
+    List<AssignmentAudit> findRecentAudits(@Param("orgId") Long orgId, @Param("since") LocalDateTime since);
 }

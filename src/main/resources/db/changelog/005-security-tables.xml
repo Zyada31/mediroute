@@ -1,9 +1,5 @@
 <!-- src/main/resources/db/changelog/005-security-tables.xml -->
-<databaseChangeLog
-        xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
-        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-        xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
-        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.25.xsd">
+<databaseChangeLog>
 
     <changeSet id="005-01-refresh-tokens-fk" author="mediroute">
         <addForeignKeyConstraint
@@ -13,5 +9,11 @@
                 referencedColumnNames="id"
                 constraintName="fk_refresh_tokens_user"
                 onDelete="CASCADE"/>
+    </changeSet>
+
+    <changeSet id="005-02-index-app-users-org" author="mediroute">
+        <createIndex tableName="app_users" indexName="idx_app_users_org">
+            <column name="org_id"/>
+        </createIndex>
     </changeSet>
 </databaseChangeLog>

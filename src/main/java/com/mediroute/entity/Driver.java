@@ -39,6 +39,9 @@ public class Driver {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
+    @Column(name = "org_id")
+    private Long orgId;
+
     // Basic Information
     @Column(name = "name", nullable = false)
     private String name;

@@ -9,24 +9,25 @@ import com.mediroute.entity.RideAudit;
 import com.mediroute.repository.AssignmentAuditRepository;
 import com.mediroute.repository.DriverRepository;
 import com.mediroute.repository.RideAuditRepository;
-import com.mediroute.repository.RideRepository;
 import com.mediroute.service.assigment.AssignmentSummaryService;
 import com.mediroute.service.driver.DriverService;
 import com.mediroute.service.parser.ExcelParserService;
-import com.mediroute.service.ride.RideService;
 import com.mediroute.service.ride.OptimizationIntegrationService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
-import jakarta.transaction.Transactional;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Sort;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
@@ -43,9 +44,9 @@ import java.util.List;
 @Tag(name = "MediRoute API", description = "Medical transport management operations")
 public class UnifiedController {
 
-    private final RideService rideService;
+    private final com.mediroute.service.ride.RideService rideService;
     private final ExcelParserService excelParserService;
-    private final RideRepository rideRepository;
+    // Removed unused rideRepository
     private final DriverRepository driverRepository;
     private final RideAuditRepository rideAuditRepository;
     private final AssignmentAuditRepository assignmentAuditRepository;
@@ -62,6 +63,7 @@ public class UnifiedController {
             @ApiResponse(responseCode = "500", description = "Processing error")
     })
     @PostMapping("/rides/upload")
+    @PreAuthorize("hasAnyRole('PROVIDER','ADMIN','DISPATCHER')")
     public ResponseEntity<ParseResult> uploadExcel(
             @Parameter(description = "Excel or CSV file containing ride data")
             @RequestParam("file") MultipartFile file,
@@ -84,6 +86,7 @@ public class UnifiedController {
 
     @Operation(summary = "Upload and optimize", description = "Parse file and immediately run optimization")
     @PostMapping("/rides/upload-and-optimize")
+    @PreAuthorize("hasAnyRole('PROVIDER','ADMIN','DISPATCHER')")
     public ResponseEntity<ParseResult> uploadAndOptimize(
             @Parameter(description = "Excel or CSV file containing ride data")
             @RequestParam("file") MultipartFile file,
@@ -107,6 +110,7 @@ public class UnifiedController {
 
     @Operation(summary = "Optimize rides for date", description = "Run optimization on all unassigned rides for a specific date")
     @PostMapping("/optimization/date/{date}")
+    @PreAuthorize("hasAnyRole('ADMIN','DISPATCHER')")
     public ResponseEntity<OptimizationResult> optimizeForDate(
             @Parameter(description = "Date to optimize")
             @PathVariable @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date) {
@@ -138,6 +142,7 @@ public class UnifiedController {
 
     @Operation(summary = "Optimize specific rides", description = "Run optimization on a list of specific ride IDs")
     @PostMapping("/optimization/rides")
+    @PreAuthorize("hasAnyRole('ADMIN','DISPATCHER')")
     public ResponseEntity<OptimizationResult> optimizeSpecificRides(@RequestBody List<Long> rideIds) {
         log.info("🔧 Running optimization for {} specific rides", rideIds.size());
 
@@ -165,6 +170,7 @@ public class UnifiedController {
 
     @Operation(summary = "Optimize rides in time range", description = "Run optimization on rides within a specific time range")
     @PostMapping("/optimization/timerange")
+    @PreAuthorize("hasAnyRole('ADMIN','DISPATCHER')")
     public ResponseEntity<OptimizationResult> optimizeTimeRange(
             @Parameter(description = "Start time") @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime startTime,
             @Parameter(description = "End time") @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime endTime) {
@@ -191,42 +197,79 @@ public class UnifiedController {
 
     // ========== Data Retrieval Endpoints ==========
 
-    @Operation(summary = "Get rides by date", description = "Retrieve all rides for a specific date")
+    @Operation(
+            summary = "Get rides by date",
+            description = "Retrieve all rides for a specific date (paginated). Results are scoped to the caller's organization.")
     @GetMapping("/rides/date/{date}")
-    public ResponseEntity<List<RideDetailDTO>> getRidesByDate(
+    @PreAuthorize("hasAnyRole('PROVIDER','ADMIN','DISPATCHER')")
+    public ResponseEntity<com.mediroute.dto.PageResponse<RideDetailDTO>> getRidesByDate(
             @Parameter(description = "Date in YYYY-MM-DD format")
-            @PathVariable @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date) {
+            @PathVariable @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date,
+            @Parameter(description = "Zero-based page index", example = "0")
+            @RequestParam(defaultValue = "0") int page,
+            @Parameter(description = "Page size", example = "25")
+            @RequestParam(defaultValue = "25") int size,
+            @Parameter(description = "Sort directive: field,dir (asc|desc)", example = "pickupTime,asc")
+            @RequestParam(defaultValue = "pickupTime,asc") String sort) {
 
         log.info("📋 Fetching rides for date: {}", date);
 
         try {
-            List<RideDetailDTO> rides = rideService.findRidesByDate(date);
-            return ResponseEntity.ok(rides);
+            String[] sortParts = sort.split(",");
+            Sort s = (sortParts.length == 2 && sortParts[1].equalsIgnoreCase("desc"))
+                    ? Sort.by(sortParts[0]).descending()
+                    : Sort.by(sortParts[0]).ascending();
+            Pageable pageable = PageRequest.of(page, size, s);
+
+            Page<Ride> pg = rideService.findRidesByDatePaged(date, pageable);
+            List<RideDetailDTO> items = pg.getContent().stream().map(RideDetailDTO::fromEntity).toList();
+            var resp = new com.mediroute.dto.PageResponse<>(items, pg.getNumber(), pg.getSize(), pg.getTotalElements(), pg.getTotalPages(), sort);
+            return ResponseEntity.ok(resp);
         } catch (Exception e) {
             log.error("Error fetching rides for date {}: {}", date, e.getMessage(), e);
-            return ResponseEntity.ok(List.of()); // Return empty list instead of error
+            var empty = new com.mediroute.dto.PageResponse<RideDetailDTO>(List.of(), page, size, 0, 0, sort);
+            return ResponseEntity.ok(empty);
         }
     }
 
-    @Operation(summary = "Get unassigned rides", description = "Retrieve unassigned rides for a specific date")
+    @Operation(
+            summary = "Get unassigned rides",
+            description = "Retrieve unassigned rides for a specific date (paginated). Results are scoped to the caller's organization.")
     @GetMapping("/rides/unassigned")
-    public ResponseEntity<List<RideDetailDTO>> getUnassignedRides(
+    @PreAuthorize("hasAnyRole('PROVIDER','ADMIN','DISPATCHER')")
+    public ResponseEntity<com.mediroute.dto.PageResponse<RideDetailDTO>> getUnassignedRides(
             @Parameter(description = "Date to check for unassigned rides")
-            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date) {
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date,
+            @Parameter(description = "Zero-based page index", example = "0")
+            @RequestParam(defaultValue = "0") int page,
+            @Parameter(description = "Page size", example = "25")
+            @RequestParam(defaultValue = "25") int size,
+            @Parameter(description = "Sort directive: field,dir (asc|desc)", example = "priority,desc")
+            @RequestParam(defaultValue = "priority,desc") String sort) {
 
         log.info("📋 Fetching unassigned rides for date: {}", date);
 
         try {
-            List<RideDetailDTO> rides = rideService.findUnassignedRidesAsDTO(date);
-            return ResponseEntity.ok(rides);
+            String[] sortParts = sort.split(",");
+            Sort s = (sortParts.length == 2 && sortParts[1].equalsIgnoreCase("desc"))
+                    ? Sort.by(sortParts[0]).descending()
+                    : Sort.by(sortParts[0]).ascending();
+            Pageable pageable = PageRequest.of(page, size, s);
+
+            Page<Ride> pg = rideService.findUnassignedRidesPaged(date, pageable);
+            List<RideDetailDTO> items = pg.getContent().stream().map(RideDetailDTO::fromEntity).toList();
+            var resp = new com.mediroute.dto.PageResponse<>(items, pg.getNumber(), pg.getSize(), pg.getTotalElements(), pg.getTotalPages(), sort);
+            return ResponseEntity.ok(resp);
         } catch (Exception e) {
             log.error("Error fetching unassigned rides for date {}: {}", date, e.getMessage(), e);
-            return ResponseEntity.ok(List.of());
+            var empty = new com.mediroute.dto.PageResponse<RideDetailDTO>(List.of(), page, size, 0, 0, sort);
+            return ResponseEntity.ok(empty);
         }
     }
 
     @Operation(summary = "Get daily assignment summary", description = "Get summary of driver assignments for a date")
     @GetMapping("/assign/summary")
+    @PreAuthorize("hasAnyRole('PROVIDER','ADMIN','DISPATCHER')")
     public ResponseEntity<List<DriverRideSummary>> getDailySummary(
             @Parameter(description = "Date for summary")
             @RequestParam("date") @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date) {
@@ -241,11 +284,12 @@ public class UnifiedController {
         }
     }
 
-    @Operation(summary = "Get qualified drivers", description = "Get drivers qualified for medical transport")
+    @Operation(summary = "Get qualified drivers", description = "Get drivers qualified for medical transport. Results are scoped to the caller's organization.")
     @GetMapping("/drivers/qualified")
+    @PreAuthorize("hasAnyRole('PROVIDER','ADMIN','DISPATCHER')")
     public ResponseEntity<List<Driver>> getQualifiedDrivers() {
         try {
-            List<Driver> drivers = driverRepository.findByActiveTrueAndIsTrainingCompleteTrue();
+            List<Driver> drivers = driverRepository.findByOrgIdAndActiveTrueAndIsTrainingCompleteTrue(com.mediroute.config.SecurityBeans.currentOrgId());
             return ResponseEntity.ok(drivers);
         } catch (Exception e) {
             log.error("Error getting qualified drivers: {}", e.getMessage(), e);
@@ -255,8 +299,9 @@ public class UnifiedController {
 
     // ========== Audit and History Endpoints ==========
 
-    @Operation(summary = "Get ride audit history", description = "Retrieve audit trail for a specific ride")
+    @Operation(summary = "Get ride audit history", description = "Retrieve audit trail for a specific ride. Results are scoped to the caller's organization.")
     @GetMapping("/rides/{rideId}/audit")
+    @PreAuthorize("hasAnyRole('ADMIN','DISPATCHER')")
     public ResponseEntity<List<RideAudit>> getAuditLogsByRide(
             @Parameter(description = "Ride ID") @PathVariable Long rideId) {
         try {
@@ -267,8 +312,9 @@ public class UnifiedController {
         }
     }
 
-    @Operation(summary = "Get assignment audit logs", description = "Retrieve assignment audit records")
+    @Operation(summary = "Get assignment audit logs", description = "Retrieve assignment audit records. Results are scoped to the caller's organization.")
     @GetMapping("/assignment/audit")
+    @PreAuthorize("hasAnyRole('ADMIN','DISPATCHER')")
     public ResponseEntity<List<AssignmentAudit>> getAuditLogs(
             @Parameter(description = "Start date for audit records")
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate startDate,
@@ -278,24 +324,25 @@ public class UnifiedController {
         try {
             if (startDate != null && endDate != null) {
                 return ResponseEntity.ok(
-                        assignmentAuditRepository.findByAssignmentDateBetweenOrderByAssignmentDateDesc(startDate, endDate));
+                        assignmentAuditRepository.findByOrgIdAndAssignmentDateBetweenOrderByAssignmentDateDesc(com.mediroute.config.SecurityBeans.currentOrgId(), startDate, endDate));
             }
 
             return ResponseEntity.ok(
-                    assignmentAuditRepository.findAll(Sort.by(Sort.Direction.DESC, "assignmentTime")));
+                    assignmentAuditRepository.findAllOrderByAssignmentTimeDesc(com.mediroute.config.SecurityBeans.currentOrgId()));
         } catch (Exception e) {
             log.error("Error getting assignment audit logs: {}", e.getMessage(), e);
             return ResponseEntity.ok(List.of());
         }
     }
 
-    @Operation(summary = "Get optimization by batch ID", description = "Get optimization results by batch identifier")
+    @Operation(summary = "Get optimization by batch ID", description = "Get optimization results by batch identifier. Results are scoped to the caller's organization.")
     @GetMapping("/assignment/audit/{batchId}")
+    @PreAuthorize("hasAnyRole('ADMIN','DISPATCHER')")
     public ResponseEntity<AssignmentAudit> getOptimizationByBatchId(
             @Parameter(description = "Optimization batch ID") @PathVariable String batchId) {
 
         try {
-            return assignmentAuditRepository.findByBatchId(batchId)
+            return assignmentAuditRepository.findByOrgIdAndBatchId(com.mediroute.config.SecurityBeans.currentOrgId(), batchId)
                     .map(audit -> ResponseEntity.ok(audit))
                     .orElse(ResponseEntity.notFound().build());
         } catch (Exception e) {
@@ -306,8 +353,9 @@ public class UnifiedController {
 
     // ========== Statistics Endpoints ==========
 
-    @Operation(summary = "Get ride statistics", description = "Get statistical summary for rides on a specific date")
+    @Operation(summary = "Get ride statistics", description = "Get statistical summary for rides on a specific date. Results are scoped to the caller's organization.")
     @GetMapping("/statistics/rides")
+    @PreAuthorize("hasAnyRole('PROVIDER','ADMIN','DISPATCHER')")
     public ResponseEntity<RideStatisticsDTO> getRideStatisticsDTO(
             @Parameter(description = "Date for statistics")
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date) {
@@ -330,8 +378,9 @@ public class UnifiedController {
         }
     }
 
-    @Operation(summary = "Get driver statistics", description = "Get statistical summary of drivers")
+    @Operation(summary = "Get driver statistics", description = "Get statistical summary of drivers. Results are scoped to the caller's organization.")
     @GetMapping("/statistics/drivers")
+    @PreAuthorize("hasAnyRole('ADMIN','DISPATCHER')")
     public ResponseEntity<DriverStatisticsDTO> getDriverStatistics() {
         try {
             DriverStatisticsDTO stats = driverService.getDriverStats();
@@ -350,8 +399,9 @@ public class UnifiedController {
         }
     }
 
-    @Operation(summary = "Get optimization statistics", description = "Get optimization performance statistics")
+    @Operation(summary = "Get optimization statistics", description = "Get optimization performance statistics. Results are scoped to the caller's organization.")
     @GetMapping("/statistics/optimization")
+    @PreAuthorize("hasAnyRole('ADMIN','DISPATCHER')")
     public ResponseEntity<OptimizationIntegrationService.OptimizationStats> getOptimizationStatistics(
             @Parameter(description = "Date for optimization statistics")
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date) {
@@ -375,58 +425,5 @@ public class UnifiedController {
         }
     }
 
-    // ========== Legacy Assignment Method ==========
-
-    @Operation(summary = "Legacy assign today", description = "Legacy endpoint for today's ride assignment")
-    @PostMapping("/assign/today")
-    public ResponseEntity<String> assignToday() {
-        try {
-            LocalDate today = LocalDate.now();
-            OptimizationResult result = optimizationService.optimizeRidesForDate(today);
-
-            return ResponseEntity.ok(String.format("Assignment complete for today. Success Rate: %.1f%%",
-                    result.getSuccessRate()));
-        } catch (Exception e) {
-            log.error("Error in legacy assign today: {}", e.getMessage(), e);
-            return ResponseEntity.ok("Assignment failed: " + e.getMessage());
-        }
-    }
-
-    // ========== Legacy Endpoints (Backward Compatibility) ==========
-
-    @Operation(summary = "Legacy upload endpoint", description = "Legacy endpoint for backward compatibility")
-    @PostMapping("/schedule/auto")
-    public ResponseEntity<String> autoSchedule(
-            @RequestParam("file") MultipartFile file,
-            @RequestParam(value = "assignmentDate", required = false)
-            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate assignmentDate) throws IOException {
-
-        if (assignmentDate == null) {
-            assignmentDate = LocalDate.now(ZoneId.of("America/Denver")).plusDays(1);
-        }
-
-        log.info("📆 Legacy scheduling for assignmentDate={}", assignmentDate);
-
-        try {
-            ParseResult result = excelParserService.parseExcelWithMedicalFeatures(file, assignmentDate, true);
-
-            if (result.getRides().isEmpty()) {
-                return ResponseEntity.badRequest().body("No rides parsed from file for " + assignmentDate);
-            }
-
-            String message = String.format("Scheduling complete for %s. Rides: %d, Success Rate: %.1f%%",
-                    assignmentDate, result.getSuccessfulRows(), result.getSuccessRate());
-
-            if (result.getOptimizationRan() && result.getOptimizationResult() != null) {
-                message += String.format(", Optimization: %.1f%% assigned",
-                        result.getOptimizationResult().getSuccessRate());
-            }
-
-            return ResponseEntity.ok(message);
-
-        } catch (Exception e) {
-            log.error("Legacy scheduling failed: {}", e.getMessage(), e);
-            return ResponseEntity.ok("Scheduling failed: " + e.getMessage());
-        }
-    }
+    // Legacy endpoints removed
 }

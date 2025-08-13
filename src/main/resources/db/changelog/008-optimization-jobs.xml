@@ -1,0 +1,36 @@
+<databaseChangeLog>
+    <changeSet id="008-create-optimization-jobs" author="mediroute">
+        <createTable tableName="optimization_jobs">
+            <column name="id" type="BIGSERIAL">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="org_id" type="bigint"/>
+            <column name="type" type="varchar(16)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="status" type="varchar(16)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="opt_date" type="date"/>
+            <column name="ride_ids" type="text"/>
+            <column name="batch_id" type="varchar(128)"/>
+            <column name="callback_url" type="varchar(1024)"/>
+            <column name="error" type="text"/>
+            <column name="submitted_at" type="timestamp"/>
+            <column name="started_at" type="timestamp"/>
+            <column name="completed_at" type="timestamp"/>
+        </createTable>
+
+        <createIndex tableName="optimization_jobs" indexName="idx_opt_jobs_status">
+            <column name="status"/>
+        </createIndex>
+        <createIndex tableName="optimization_jobs" indexName="idx_opt_jobs_submitted">
+            <column name="submitted_at"/>
+        </createIndex>
+        <createIndex tableName="optimization_jobs" indexName="idx_opt_jobs_org">
+            <column name="org_id"/>
+        </createIndex>
+    </changeSet>
+</databaseChangeLog>
+
+

@@ -10,9 +10,12 @@ import com.mediroute.entity.Ride;
 import com.mediroute.repository.DriverRepository;
 import com.mediroute.repository.RideRepository;
 import com.mediroute.service.distance.GeocodingService;
+import static com.mediroute.config.SecurityBeans.currentOrgId;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.hibernate.Hibernate;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -49,6 +52,11 @@ public class DriverService {
         updateDriverLocation(driver, dto, update);
         updateDriverScheduling(driver, dto);
 
+        // set org scope on create
+        if (driver.getId() == null) {
+            Long org = currentOrgId();
+            if (org != null) driver.setOrgId(org);
+        }
         driver = driverRepository.save(driver);
         log.info("✅ Driver {} successfully", update ? "updated" : "created");
 
@@ -57,21 +65,22 @@ public class DriverService {
 
     @Transactional(readOnly = true)
     public List<Driver> getQualifiedDrivers() {
-        return driverRepository.findByActiveTrue().stream()
+        Long org = currentOrgId();
+        return driverRepository.findByOrgIdAndActiveTrue(org).stream()
                 .filter(this::isDriverQualified)
                 .collect(Collectors.toList());
     }
 
     @Transactional(readOnly = true)
     public List<Driver> getDriversByVehicleCapability(String vehicleType) {
-        return driverRepository.findByActiveTrue().stream()
+        return driverRepository.findByOrgIdAndActiveTrue(currentOrgId()).stream()
                 .filter(driver -> canDriverHandleVehicleType(driver, vehicleType))
                 .collect(Collectors.toList());
     }
 
     @Transactional(readOnly = true)
     public List<Driver> getAvailableDrivers(LocalDateTime startTime, LocalDateTime endTime) {
-        return driverRepository.findByActiveTrue().stream()
+        return driverRepository.findByOrgIdAndActiveTrue(currentOrgId()).stream()
                 .filter(driver -> isDriverAvailable(driver, startTime, endTime))
                 .collect(Collectors.toList());
     }
@@ -123,6 +132,11 @@ public class DriverService {
     @Transactional(readOnly = true)
     public List<Driver> listAllDrivers() {
         return driverRepository.findAll();
+    }
+
+    @Transactional(readOnly = true)
+    public Page<Driver> findAll(Pageable pageable) {
+        return driverRepository.findAll(pageable);
     }
 
     // Private helper methods
@@ -200,7 +214,7 @@ public class DriverService {
                 throw new IllegalArgumentException("❌ Failed to geocode location: " + dto.getBaseLocation());
             }
 
-            log.info("📍 Geocoded {} → lat={}, lng={}", dto.getBaseLocation(), geo.lat(), geo.lng());
+            log.debug("📍 Geocoded base location → lat={}, lng={}", geo.lat(), geo.lng());
 
             driver.setBaseLocation(dto.getBaseLocation());
             driver.setBaseLat(geo.lat());
@@ -296,7 +310,7 @@ public class DriverService {
 
     @Transactional(readOnly = true)
     public DriverStatisticsDTO getDriverStats() {
-        List<Driver> activeDrivers = driverRepository.findByActiveTrue();
+        List<Driver> activeDrivers = driverRepository.findByOrgIdAndActiveTrue(currentOrgId());
 
         return DriverStatisticsDTO.builder()
                 .totalActiveDrivers((long) activeDrivers.size())

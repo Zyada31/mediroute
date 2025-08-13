@@ -31,3 +31,10 @@ build/
 
 ### VS Code ###
 .vscode/
+jwt-private.pem
+jwt-public.pem
+login.json
+keys/
+.env
+.env.*
+!.env.example
