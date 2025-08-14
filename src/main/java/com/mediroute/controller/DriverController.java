@@ -362,6 +362,53 @@ public class DriverController {
         }
     }
 
+    @PostMapping("/{id}/activate")
+    @Operation(summary = "Activate a driver")
+    @PreAuthorize("hasAnyRole('ADMIN','DISPATCHER')")
+    public ResponseEntity<?> activateDriver(
+            @Parameter(description = "Driver ID") @PathVariable Long id) {
+        try {
+            var existing = driverService.getDriverById(id);
+            if (existing.isEmpty()) {
+                return ResponseEntity.notFound().build();
+            }
+            driverService.reactivateDriver(id);
+            return driverService.getDriverById(id)
+                    .map(DriverDTO::fromEntity)
+                    .map(ResponseEntity::ok)
+                    .orElse(ResponseEntity.notFound().build());
+        } catch (IllegalStateException e) {
+            return ResponseEntity.status(HttpStatus.CONFLICT)
+                    .body(createErrorResponse("INVALID_STATE", e.getMessage()));
+        } catch (Exception e) {
+            log.error("Error activating driver {}", id, e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(createErrorResponse("INTERNAL_ERROR", "Failed to activate driver"));
+        }
+    }
+
+    @PostMapping("/{id}/deactivate")
+    @Operation(summary = "Deactivate a driver")
+    @PreAuthorize("hasAnyRole('ADMIN','DISPATCHER')")
+    public ResponseEntity<?> deactivateDriver(
+            @Parameter(description = "Driver ID") @PathVariable Long id) {
+        try {
+            var existing = driverService.getDriverById(id);
+            if (existing.isEmpty()) {
+                return ResponseEntity.notFound().build();
+            }
+            driverService.deactivateDriver(id);
+            return driverService.getDriverById(id)
+                    .map(DriverDTO::fromEntity)
+                    .map(ResponseEntity::ok)
+                    .orElse(ResponseEntity.notFound().build());
+        } catch (Exception e) {
+            log.error("Error deactivating driver {}", id, e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(createErrorResponse("INTERNAL_ERROR", "Failed to deactivate driver"));
+        }
+    }
+
     // ========== HELPER METHODS ==========
 
     /**
