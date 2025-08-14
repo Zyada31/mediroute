@@ -4,6 +4,8 @@ import com.mediroute.dto.OptimizationResult;
 import com.mediroute.entity.OptimizationJob;
 import com.mediroute.repository.OptimizationJobRepository;
 import lombok.RequiredArgsConstructor;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.Timer;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
@@ -24,6 +26,7 @@ public class OptimizationJobService {
 
     private final OptimizationJobRepository jobs;
     private final OptimizationIntegrationService optimizationService;
+    private final MeterRegistry meterRegistry;
     private final RestTemplate restTemplate = new RestTemplate();
 
     @Transactional
@@ -50,6 +53,7 @@ public class OptimizationJobService {
     @Transactional
     public void runJobAsync(Long jobId) {
         OptimizationJob job = jobs.findById(jobId).orElseThrow();
+        Timer.Sample sample = Timer.start(meterRegistry);
         try {
             job.setStatus(OptimizationJob.JobStatus.RUNNING);
             job.setStartedAt(LocalDateTime.now());
@@ -70,6 +74,7 @@ public class OptimizationJobService {
             job.setStatus(OptimizationJob.JobStatus.COMPLETED);
             job.setCompletedAt(LocalDateTime.now());
             jobs.save(job);
+            sample.stop(Timer.builder("optimizer.job.duration").tag("status","completed").register(meterRegistry));
 
             notifyWebhook(job);
         } catch (Exception e) {
@@ -78,6 +83,7 @@ public class OptimizationJobService {
             job.setError(e.getMessage());
             job.setCompletedAt(LocalDateTime.now());
             jobs.save(job);
+            sample.stop(Timer.builder("optimizer.job.duration").tag("status","failed").register(meterRegistry));
 
             notifyWebhook(job);
         }

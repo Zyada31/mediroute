@@ -18,7 +18,7 @@ public class AdminBootstrap {
             if (!users.existsByEmail("admin@mediroute.com")) {
                 var u = new AppUser();
                 u.setEmail("admin@mediroute.com");
-                u.setPasswordHash(enc.encode("zadmin123"));
+                u.setPasswordHash(enc.encode("zxcvbnzz"));
                 u.setRoleList(List.of("ADMIN","DISPATCHER"));
                 u.setActive(true);
                 users.save(u);

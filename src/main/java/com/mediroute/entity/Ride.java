@@ -5,6 +5,7 @@ import com.mediroute.dto.RideStatus;
 import com.mediroute.dto.RideType;
 import com.mediroute.entity.embeddable.Location;
 import jakarta.persistence.*;
+import org.hibernate.annotations.Filter;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -20,6 +21,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 @Entity
+@Filter(name = "orgFilter", condition = "org_id = :orgId")
 @Table(name = "rides", indexes = {
         @Index(name = "idx_ride_pickup_time", columnList = "pickup_time"),
         @Index(name = "idx_ride_status", columnList = "status"),

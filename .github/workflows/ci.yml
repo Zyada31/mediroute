@@ -2,12 +2,142 @@ name: CI
 
 on:
   push:
-    branches: [ "**" ]
+    branches: ["**"]
   pull_request:
-    branches: [ "**" ]
+    branches: ["**"]
 
 jobs:
-  build:
+  build-test:
+    name: Build & Test (Maven)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: 'maven'
+      - name: Maven package
+        run: ./mvnw -B -DskipITs package
+
+  liquibase-validate:
+    name: Liquibase validate & status
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_DB: mediroute
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres" \
+          --health-interval 10s \
+          --health-timeout 5s \
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+      - name: Configure liquibase
+        run: |
+          sed -i 's#^url=.*#url=jdbc:postgresql://localhost:5432/mediroute#' src/main/resources/liquibase.properties
+          sed -i 's#^username=.*#username=postgres#' src/main/resources/liquibase.properties
+          sed -i 's#^password=.*#password=postgres#' src/main/resources/liquibase.properties
+      - name: Liquibase validate
+        run: |
+          ./mvnw -q -DskipTests liquibase:validate
+      - name: Liquibase status
+        run: |
+          ./mvnw -q -DskipTests liquibase:status -Dliquibase.status.verbose=true
+      - name: Liquibase updateSQL (dry-run)
+        run: |
+          ./mvnw -q -DskipTests liquibase:updateSQL
+
+  openapi-validate:
+    name: OpenAPI validation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+      - name: Install swagger-cli
+        run: npm i -g @apidevtools/swagger-cli
+      - name: Validate openapi.json
+        run: |
+          if [ -f openapi.json ]; then
+            swagger-cli validate openapi.json
+          else
+            echo "openapi.json not found; skipping" && exit 0
+          fi
+
+  trivy-scan:
+    name: Trivy scan (filesystem)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run Trivy filesystem scan
+        uses: aquasec/trivy-action@0.20.0
+        with:
+          scan-type: 'fs'
+          scan-ref: '.'
+          severity: 'HIGH,CRITICAL'
+          ignore-unfixed: true
+          format: 'table'
+          exit-code: '1'
+
+  sbom:
+    name: Generate SBOM
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Generate SBOM (SPDX JSON)
+        uses: anchore/sbom-action@v0
+        with:
+          path: .
+          format: spdx-json
+          output-file: sbom.spdx.json
+      - name: Upload SBOM artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom-spdx
+          path: sbom.spdx.json
+
+  docker-image-scan:
+    name: Build Docker image & Trivy image scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: 'maven'
+      - name: Build container image with Paketo buildpacks
+        run: |
+          IMAGE=mediroute:ci-${{ github.sha }}
+          ./mvnw -B -DskipTests spring-boot:build-image -Dspring-boot.build-image.imageName=$IMAGE
+      - name: Trivy image scan
+        uses: aquasec/trivy-action@0.20.0
+        with:
+          scan-type: 'image'
+          image-ref: 'mediroute:ci-${{ github.sha }}'
+          severity: 'HIGH,CRITICAL'
+          ignore-unfixed: true
+          format: 'table'
+          exit-code: '1'
+  verify-it:
+    name: Verify (IT) with services
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -19,39 +149,34 @@ jobs:
         ports:
           - 5432:5432
         options: >-
-          --health-cmd "pg_isready -U postgres" 
-          --health-interval 10s 
-          --health-timeout 5s 
+          --health-cmd "pg_isready -U postgres" \
+          --health-interval 10s \
+          --health-timeout 5s \
           --health-retries 5
       redis:
         image: redis:7
         ports:
           - 6379:6379
         options: >-
-          --health-cmd "redis-cli ping" 
-          --health-interval 10s 
-          --health-timeout 5s 
+          --health-cmd "redis-cli ping" \
+          --health-interval 10s \
+          --health-timeout 5s \
           --health-retries 5
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
+      - uses: actions/checkout@v4
       - name: Set up JDK 21
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '21'
           cache: maven
-
       - name: Configure test env
         run: |
           echo "GOOGLE_API_KEY=" >> $GITHUB_ENV
           echo "OSRM_BASE_URL=http://localhost:5000" >> $GITHUB_ENV
-
-      - name: Build and test
-        run: mvn -B -ntp verify
-
+      - name: Build and verify
+        run: ./mvnw -B -ntp verify
       - name: Dependency Scan (OWASP Dependency-Check)
         uses: dependency-check/Dependency-Check_Action@v4.1.0
         with:
@@ -59,10 +184,8 @@ jobs:
           path: '.'
           format: 'HTML'
           args: >-
-            --failOnCVSS 0 
-            --nvdApiKey ${{ secrets.NVD_API_KEY || '' }}
+            --failOnCVSS 0
         continue-on-error: true
-
       - name: Upload dependency-check report
         if: always()
         uses: actions/upload-artifact@v4

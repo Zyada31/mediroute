@@ -1,0 +1,30 @@
+groups:
+  - name: mediroute-alerts
+    rules:
+      - alert: MedirouteDown
+        expr: up{job="mediroute"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "MediRoute is down"
+          description: "No metrics scraped from MediRoute for 1 minute."
+
+      - alert: HighHttp5xxRate
+        expr: rate(http_server_requests_seconds_count{status=~"5.."}[5m]) > 0.5
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Elevated 5xx error rate"
+          description: "More than 0.5 5xx responses per second over 5m."
+
+      - alert: SlowOptimizerJobs
+        expr: histogram_quantile(0.95, sum(rate(optimizer_job_duration_seconds_bucket[5m])) by (le)) > 120
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Optimizer jobs are slow (p95 > 120s)"
+          description: "p95 of optimizer.job.duration exceeds 120 seconds for 10 minutes."
+

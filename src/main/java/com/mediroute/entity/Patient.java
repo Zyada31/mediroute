@@ -3,6 +3,7 @@ package com.mediroute.entity;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.mediroute.dto.MobilityLevel;
 import jakarta.persistence.*;
+import org.hibernate.annotations.Filter;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -24,6 +25,7 @@ import java.util.List;
 import java.util.Map;
 
 @Entity
+@Filter(name = "orgFilter", condition = "org_id = :orgId")
 @Table(name = "patients", indexes = {
         @Index(name = "idx_patient_phone", columnList = "phone"),
         @Index(name = "idx_patient_name", columnList = "name"),

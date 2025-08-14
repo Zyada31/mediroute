@@ -15,6 +15,8 @@ import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
@@ -46,6 +48,7 @@ public class DriverController {
 
     private final DriverService driverService;
     private final RideService rideService;
+    private final ObjectMapper objectMapper;
 
     // ========== NEW ENDPOINTS ==========
 
@@ -242,24 +245,36 @@ public class DriverController {
 
     @PostMapping
     @PreAuthorize("hasAnyRole('ADMIN','DISPATCHER')")
-    public ResponseEntity<?> createDriver(@Validated(DriverDTO.Create.class) @RequestBody DriverDTO dto) {
+    public ResponseEntity<?> createDriver(@RequestBody JsonNode payload) {
         try {
-            Driver saved = driverService.createOrUpdateDriver(dto, false);
-            DriverDTO response = DriverDTO.fromEntity(saved);
-            return ResponseEntity.status(HttpStatus.CREATED).body(response);
-
-        } catch (IllegalStateException e) {
-            log.warn("Duplicate driver: {}", dto.getName());
-            return ResponseEntity.status(HttpStatus.CONFLICT)
-                    .body(createErrorResponse("DUPLICATE_DRIVER", e.getMessage()));
-        } catch (IllegalArgumentException e) {
-            log.error("Invalid driver data for {}", dto.getName(), e);
-            return ResponseEntity.badRequest()
-                    .body(createErrorResponse("INVALID_DATA", e.getMessage()));
+            if (payload.isArray()) {
+                List<DriverDTO> created = new ArrayList<>();
+                List<ErrorResponse> errors = new ArrayList<>();
+                for (JsonNode node : payload) {
+                    try {
+                        DriverDTO dto = objectMapper.treeToValue(node, DriverDTO.class);
+                        Driver saved = driverService.createOrUpdateDriver(dto, false);
+                        created.add(DriverDTO.fromEntity(saved));
+                    } catch (IllegalStateException e) {
+                        errors.add(new ErrorResponse("DUPLICATE_DRIVER", e.getMessage(), LocalDateTime.now()));
+                    } catch (IllegalArgumentException e) {
+                        errors.add(new ErrorResponse("INVALID_DATA", e.getMessage(), LocalDateTime.now()));
+                    } catch (Exception e) {
+                        errors.add(new ErrorResponse("INTERNAL_ERROR", "Failed to create one of the drivers", LocalDateTime.now()));
+                    }
+                }
+                return ResponseEntity.status(errors.isEmpty() ? HttpStatus.CREATED : HttpStatus.MULTI_STATUS)
+                        .body(Map.of("created", created, "errors", errors));
+            } else {
+                DriverDTO dto = objectMapper.treeToValue(payload, DriverDTO.class);
+                Driver saved = driverService.createOrUpdateDriver(dto, false);
+                DriverDTO response = DriverDTO.fromEntity(saved);
+                return ResponseEntity.status(HttpStatus.CREATED).body(response);
+            }
         } catch (Exception e) {
-            log.error("Unexpected error creating driver: {}", dto.getName(), e);
+            log.error("Unexpected error creating driver(s)", e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(createErrorResponse("INTERNAL_ERROR", "Failed to create driver"));
+                    .body(createErrorResponse("INTERNAL_ERROR", "Failed to create driver(s)"));
         }
     }
 

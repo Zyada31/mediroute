@@ -48,7 +48,8 @@ public class JwtAuthFilter extends OncePerRequestFilter {
                             .toList();
                 }
 
-                String subject = (String) claims.getOrDefault("sub", "user");
+                Object subObj = claims.getOrDefault("sub", "user");
+                String subject = String.valueOf(subObj);
                 var authentication =
                         new UsernamePasswordAuthenticationToken(subject, null, authorities);
 

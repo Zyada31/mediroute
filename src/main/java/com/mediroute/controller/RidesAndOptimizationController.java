@@ -28,6 +28,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.multipart.MultipartFile;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.web.server.ResponseStatusException;
 import org.springframework.security.core.Authentication;
 
@@ -63,6 +64,7 @@ public class RidesAndOptimizationController {
     private final DriverService driverService;
     private final AssignmentSummaryService summaryService;
     private final OptimizationIntegrationService optimizationService;
+    private final StringRedisTemplate redis;
 
     @Operation(summary = "Upload Excel/CSV file", description = "Parse and import rides from Excel or CSV file")
     @ApiResponses(value = {
@@ -77,8 +79,16 @@ public class RidesAndOptimizationController {
             @RequestParam("file") MultipartFile file,
             @Parameter(description = "Assignment date for the rides")
             @RequestParam(name = "assignmentDate", required = false)
-            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate assignmentDate) throws IOException {
+            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate assignmentDate,
+            @RequestHeader(value = "Idempotency-Key", required = false) String idemKey) throws IOException {
 
+        if (idemKey != null && !idemKey.isBlank()) {
+            String key = "idem:upload:" + (assignmentDate != null ? assignmentDate : "auto") + ":" + idemKey;
+            Boolean ok = redis.opsForValue().setIfAbsent(key, "1", java.time.Duration.ofHours(24));
+            if (Boolean.FALSE.equals(ok)) {
+                return ResponseEntity.status(208).build();
+            }
+        }
         log.info("Received file upload: {}", file.getOriginalFilename());
 
         if (assignmentDate == null) {
@@ -100,8 +110,16 @@ public class RidesAndOptimizationController {
             @RequestParam("file") MultipartFile file,
             @Parameter(description = "Assignment date for the rides")
             @RequestParam(name = "assignmentDate", required = false)
-            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate assignmentDate) throws IOException {
+            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate assignmentDate,
+            @RequestHeader(value = "Idempotency-Key", required = false) String idemKey) throws IOException {
 
+        if (idemKey != null && !idemKey.isBlank()) {
+            String key = "idem:upload-opt:" + (assignmentDate != null ? assignmentDate : "auto") + ":" + idemKey;
+            Boolean ok = redis.opsForValue().setIfAbsent(key, "1", java.time.Duration.ofHours(24));
+            if (Boolean.FALSE.equals(ok)) {
+                return ResponseEntity.status(208).build();
+            }
+        }
         log.info("Received file upload with optimization: {}", file.getOriginalFilename());
 
         if (assignmentDate == null) {

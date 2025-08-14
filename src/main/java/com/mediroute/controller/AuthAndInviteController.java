@@ -19,6 +19,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.web.bind.annotation.*;
+import io.github.resilience4j.ratelimiter.annotation.RateLimiter;
 import org.springframework.web.server.ResponseStatusException;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import io.swagger.v3.oas.annotations.Operation;
@@ -61,7 +62,8 @@ public class AuthAndInviteController {
 
 	@PostMapping("/activate")
 	@Operation(summary = "Activate invited user", description = "Activate a user account using invite token and optional password")
-	public ResponseEntity<?> activate(@RequestBody @Valid ActivateReq req) {
+    @RateLimiter(name = "auth-rl")
+    public ResponseEntity<?> activate(@RequestBody @Valid ActivateReq req) {
 		String[] parts = req.getToken().split("\\.");
 		if (parts.length != 2) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid token");
 		String raw = parts[0];
@@ -96,8 +98,8 @@ public class AuthAndInviteController {
 		return ResponseEntity.ok(Map.of("status","activated"));
 	}
 
-	public record LoginReq(String email, String password, String totp) {}
-	public record LoginRes(String accessToken, List<String> roles, Long driverId) {}
+    public record LoginReq(String email, String password, String totp) {}
+    public record LoginRes(String accessToken, List<String> roles, Long driverId, String refreshToken) {}
 
 	@PostMapping("/login")
 	@Operation(summary = "Login", description = "Authenticate using email/password (+ optional TOTP) and receive access token + refresh cookie")
@@ -105,7 +107,8 @@ public class AuthAndInviteController {
 			@ApiResponse(responseCode = "200", description = "Login successful"),
 			@ApiResponse(responseCode = "401", description = "Unauthorized")
 	})
-	public ResponseEntity<LoginRes> login(@RequestBody @Valid LoginReq req,
+    @RateLimiter(name = "auth-rl")
+    public ResponseEntity<LoginRes> login(@RequestBody @Valid LoginReq req,
 										  HttpServletResponse res,
 										  HttpServletRequest httpReq) {
 		var user = userRepo.findByEmail(req.email())
@@ -132,7 +135,7 @@ public class AuthAndInviteController {
 		rt.setIp(httpReq.getRemoteAddr());
 		rtRepo.save(rt);
 
-		setRefreshCookie(res, rt.getJti(), (int) Duration.ofDays(ttlDays).toSeconds());
+        setRefreshCookie(httpReq, res, rt.getJti(), (int) Duration.ofDays(ttlDays).toSeconds());
 		if (Boolean.TRUE.equals(user.isMfaEnabled())) {
 			String totp = req.totp();
 			if (totp == null || !validateCode(user.getMfaTotpSecret(), totp)) {
@@ -140,18 +143,21 @@ public class AuthAndInviteController {
 				throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "mfa_required");
 			}
 		}
-		log.info("Login succeeded for {}", req.email());
-		return ResponseEntity.ok(new LoginRes(access, user.getRoles(), user.getDriverId()));
+        boolean dev = "dev".equalsIgnoreCase(System.getenv().getOrDefault("SPRING_PROFILES_ACTIVE", "dev"));
+        log.info("Login succeeded for {}", req.email());
+        return ResponseEntity.ok(new LoginRes(access, user.getRoles(), user.getDriverId(), dev ? rt.getJti() : null));
 	}
 
 	@PostMapping("/refresh")
 	@Operation(summary = "Refresh access token", description = "Rotate refresh token cookie and issue new access token")
-	public ResponseEntity<LoginRes> refresh(
+    @RateLimiter(name = "auth-rl")
+    public ResponseEntity<LoginRes> refresh(
 			@CookieValue(name = "refresh_token", required = false) String cookie,
 			HttpServletResponse res,
 			HttpServletRequest httpReq
 	) {
-		if (cookie == null) cookie = findCookie(httpReq, props.getSecurity().getCookieName());
+        if (cookie == null) cookie = findCookie(httpReq, props.getSecurity().getCookieName());
+        if (cookie == null) cookie = httpReq.getHeader("X-Refresh-Token");
 		if (cookie == null) throw new ResponseStatusException(HttpStatus.UNAUTHORIZED);
 
 		var current = rtRepo.findByJti(cookie)
@@ -175,7 +181,7 @@ public class AuthAndInviteController {
 		current.setRotatedTo(next.getJti());
 		rtRepo.save(current);
 
-		setRefreshCookie(res, next.getJti(), (int) Duration.ofDays(ttlDays).toSeconds());
+        setRefreshCookie(httpReq, res, next.getJti(), (int) Duration.ofDays(ttlDays).toSeconds());
 
 		String access = jwt.createAccessToken(new com.mediroute.service.security.AppUserView() {
 			@Override public Long getId() { return user.getId(); }
@@ -184,13 +190,15 @@ public class AuthAndInviteController {
 			@Override public Long getDriverId() { return user.getDriverId(); }
 			@Override public String getName() { return null; }
 		});
-		log.info("Refresh token rotated for user {}", user.getEmail());
-		return ResponseEntity.ok(new LoginRes(access, user.getRoles(), user.getDriverId()));
+        boolean dev = "dev".equalsIgnoreCase(System.getenv().getOrDefault("SPRING_PROFILES_ACTIVE", "dev"));
+        log.info("Refresh token rotated for user {}", user.getEmail());
+        return ResponseEntity.ok(new LoginRes(access, user.getRoles(), user.getDriverId(), dev ? next.getJti() : null));
 	}
 
 	@PostMapping("/logout")
 	@Operation(summary = "Logout", description = "Revoke refresh token and clear cookie")
-	public ResponseEntity<Void> logout(
+    @RateLimiter(name = "auth-rl")
+    public ResponseEntity<Void> logout(
 			@CookieValue(name = "refresh_token", required = false) String cookie,
 			HttpServletResponse res,
 			HttpServletRequest req
@@ -198,7 +206,7 @@ public class AuthAndInviteController {
 		if (cookie == null) cookie = findCookie(req, props.getSecurity().getCookieName());
 		if (cookie != null) {
 			rtRepo.findByJti(cookie).ifPresent(rt -> { rt.setRevoked(true); rtRepo.save(rt); });
-			setRefreshCookie(res, "", 0);
+            setRefreshCookie(req, res, "", 0);
 		}
 		log.info("User logged out (refresh revoked if present)");
 		return ResponseEntity.noContent().build();
@@ -206,7 +214,8 @@ public class AuthAndInviteController {
 
 	@PostMapping("/mfa/totp/setup")
 	@Operation(summary = "Begin TOTP setup", description = "Generate a TOTP secret and return otpauth URI for the current user")
-	public ResponseEntity<?> totpSetup(@RequestHeader("Authorization") String authHeader) {
+    @RateLimiter(name = "auth-rl")
+    public ResponseEntity<?> totpSetup(@RequestHeader("Authorization") String authHeader) {
 		var user = requireUserFromAuthHeader(authHeader);
 		if (Boolean.TRUE.equals(user.getMfaEnabled()) && user.getMfaTotpSecret() != null) {
 			return ResponseEntity.badRequest().body(Map.of("error","already_enabled"));
@@ -227,7 +236,8 @@ public class AuthAndInviteController {
 
 	@PostMapping("/mfa/totp/verify")
 	@Operation(summary = "Verify TOTP and enable", description = "Verify a code against the stored secret and enable MFA")
-	public ResponseEntity<?> totpVerify(@RequestHeader("Authorization") String authHeader,
+    @RateLimiter(name = "auth-rl")
+    public ResponseEntity<?> totpVerify(@RequestHeader("Authorization") String authHeader,
 										  @RequestBody Map<String, String> body) {
 		var user = requireUserFromAuthHeader(authHeader);
 		String code = String.valueOf(body.getOrDefault("code",""))
@@ -247,7 +257,8 @@ public class AuthAndInviteController {
 	@PostMapping("/invite")
 	@Operation(summary = "Create user invite", description = "Create an invite link for a new or inactive user in an org")
 	@PreAuthorize("hasAnyRole('ADMIN','DISPATCHER')")
-	public ResponseEntity<com.mediroute.dto.InviteCreateRes> invite(@RequestBody com.mediroute.dto.InviteCreateReq req) {
+    @RateLimiter(name = "auth-rl")
+    public ResponseEntity<com.mediroute.dto.InviteCreateRes> invite(@RequestBody com.mediroute.dto.InviteCreateReq req) {
 		userRepo.findByEmail(req.getEmail()).ifPresent(u -> {
 			if (u.isActive()) throw new IllegalStateException("User already active");
 		});
@@ -280,10 +291,12 @@ public class AuthAndInviteController {
 		return null;
 	}
 
-	private void setRefreshCookie(HttpServletResponse res, String value, int maxAgeSeconds) {
-		boolean prod = !"dev".equalsIgnoreCase(System.getProperty("spring.profiles.active", "dev"));
-		String sameSite = prod ? "Strict" : "Lax";
-		boolean secure   = prod;
+    private void setRefreshCookie(HttpServletRequest req, HttpServletResponse res, String value, int maxAgeSeconds) {
+        String active = System.getenv().getOrDefault("SPRING_PROFILES_ACTIVE", "dev");
+        boolean dev = "dev".equalsIgnoreCase(active);
+        boolean requestSecure = req.isSecure() || "https".equalsIgnoreCase(req.getHeader("X-Forwarded-Proto"));
+        boolean secure = dev ? false : requestSecure;
+        String sameSite = dev ? "Lax" : (secure ? "None" : "Strict");
 
 		var cookie = ResponseCookie.from(props.getSecurity().getCookieName(), value)
 				.httpOnly(true)
@@ -292,7 +305,7 @@ public class AuthAndInviteController {
 				.path("/")
 				.maxAge(maxAgeSeconds)
 				.build();
-		res.addHeader(HttpHeaders.SET_COOKIE, cookie.toString());
+        res.addHeader(HttpHeaders.SET_COOKIE, cookie.toString());
 	}
 
 	private AppUser requireUserFromAuthHeader(String authHeader) {

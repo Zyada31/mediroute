@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration>
+    <property name="LOG_LEVEL" value="INFO"/>
+
+    <appender name="JSON" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder class="net.logstash.logback.encoder.LoggingEventCompositeJsonEncoder">
+            <providers>
+                <timestamp/>
+                <pattern>
+                    <pattern>
+                        {
+                          "level":"%level",
+                          "logger":"%logger{36}",
+                          "thread":"%thread",
+                          "message":"%msg",
+                          "traceId":"%X{traceId}",
+                          "spanId":"%X{spanId}",
+                          "orgId":"%X{orgId}",
+                          "driverId":"%X{driverId}"
+                        }
+                    </pattern>
+                </pattern>
+                <arguments/>
+                <stackTrace/>
+            </providers>
+        </encoder>
+    </appender>
+
+    <root level="${LOG_LEVEL}">
+        <appender-ref ref="JSON"/>
+    </root>
+</configuration>
+
+

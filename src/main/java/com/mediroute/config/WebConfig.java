@@ -15,6 +15,9 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 import org.springframework.web.servlet.handler.SimpleUrlHandlerMapping;
+import io.github.resilience4j.ratelimiter.RateLimiterConfig;
+import io.github.resilience4j.ratelimiter.RateLimiterRegistry;
+import java.time.Duration;
 
 import java.util.Map;
 
@@ -53,5 +56,15 @@ public class WebConfig implements WebMvcConfigurer {
         ConcurrentMapCacheManager cm = new ConcurrentMapCacheManager();
         cm.setCacheNames(cacheNames);
         return cm;
+    }
+
+    @Bean
+    public RateLimiterRegistry rateLimiterRegistry() {
+        RateLimiterConfig cfg = RateLimiterConfig.custom()
+                .limitForPeriod(Integer.parseInt(System.getProperty("auth.ratelimit.permits", "10")))
+                .limitRefreshPeriod(Duration.ofSeconds(Long.parseLong(System.getProperty("auth.ratelimit.refreshSeconds", "60"))))
+                .timeoutDuration(Duration.ofMillis(Long.parseLong(System.getProperty("auth.ratelimit.timeoutMs", "0"))))
+                .build();
+        return RateLimiterRegistry.of(cfg);
     }
 }

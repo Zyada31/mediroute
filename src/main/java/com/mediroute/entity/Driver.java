@@ -2,6 +2,7 @@ package com.mediroute.entity;
 
 import com.mediroute.dto.VehicleTypeEnum;
 import jakarta.persistence.*;
+import org.hibernate.annotations.Filter;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -21,6 +22,7 @@ import java.util.List;
 import java.util.Map;
 
 @Entity
+@Filter(name = "orgFilter", condition = "org_id = :orgId")
 @Table(name = "drivers",
         uniqueConstraints = @UniqueConstraint(columnNames = {"name", "phone"}),
         indexes = {

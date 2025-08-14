@@ -75,6 +75,7 @@ public class RideEvidenceController {
     @Operation(summary = "List ride evidence")
     @PreAuthorize("hasAnyRole('DRIVER','DISPATCHER','ADMIN','PROVIDER')")
     public List<Map<String,Object>> list(@PathVariable Long rideId) {
+        java.time.Duration ttl = java.time.Duration.ofMinutes(Long.parseLong(System.getProperty("evidence.url.ttl.minutes", "5")));
         return evidenceRepository.findAllByRideIdOrderByCreatedAtAsc(rideId).stream().map(v -> {
             Map<String,Object> m = new LinkedHashMap<>();
             m.put("id", v.getId());
@@ -86,7 +87,7 @@ public class RideEvidenceController {
             m.put("notes", v.getNotes());
             m.put("contentType", v.getContentType());
             m.put("sizeBytes", v.getFileSizeBytes());
-            m.put("url", storage.getSignedReadUrl(v.getFilePath(), java.time.Duration.ofMinutes(5)));
+            m.put("url", storage.getSignedReadUrl(v.getFilePath(), ttl));
             return m;
         }).toList();
     }

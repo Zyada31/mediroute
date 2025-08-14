@@ -88,6 +88,8 @@ mediroute:
 
 # Resilience4j configuration for OSRM
 resilience4j:
+  metrics:
+    enabled: true
   circuitbreaker:
     instances:
       osrm:
@@ -126,7 +128,7 @@ logging:
 
 # Server Configuration
 server:
-  port: 8080
+  port: 8081
   servlet:
     context-path: /
     forward-headers-strategy: framework
@@ -137,9 +139,11 @@ management:
   endpoints:
     web:
       exposure:
-        include: health,info,metrics,env,beans
+        include: health,info,metrics,env,beans,prometheus
       base-path: /actuator
   endpoint:
+    prometheus:
+      enabled: true
     health:
       show-details: when-authorized
       probes:
@@ -147,6 +151,20 @@ management:
   info:
     env:
       enabled: true
+
+  metrics:
+    tags:
+      application: mediroute
+    export:
+      prometheus:
+        enabled: true
+    distribution:
+      percentiles-histogram:
+        http.server.requests: true
+        executor: true
+      slo:
+        http.server.requests: 100ms,250ms,500ms,1s,2s,5s
+        optimizer.job.duration: 5s,10s,30s,1m,2m,5m
 
 info:
   app:
