@@ -24,6 +24,7 @@ import java.util.stream.Collectors;
 public class RideService {
 
     private final RideRepository rideRepository;
+    private final RideAuditService rideAuditService;
 
     /**
      * Find ride by ID with all associations loaded
@@ -141,6 +142,85 @@ public class RideService {
         log.debug("Saving ride for patient: {}",
                 ride.getPatient() != null ? ride.getPatient().getName() : "Unknown");
         return rideRepository.save(ride);
+    }
+
+    @Transactional
+    public Ride updateStatus(Long rideId, RideStatus newStatus, Long actingDriverId, String actorRole, String notes) {
+        Ride ride = rideRepository.findByIdWithFullDetails(rideId).orElseThrow();
+
+        // Authorization: drivers can only update their assigned rides
+        boolean isDriver = actorRole != null && actorRole.contains("DRIVER");
+        if (isDriver) {
+            Long pickupId = ride.getPickupDriver() != null ? ride.getPickupDriver().getId() : null;
+            Long dropId   = ride.getDropoffDriver() != null ? ride.getDropoffDriver().getId() : null;
+            Long legacyId = ride.getDriver() != null ? ride.getDriver().getId() : null;
+            if (actingDriverId == null || !(actingDriverId.equals(pickupId) || actingDriverId.equals(dropId) || actingDriverId.equals(legacyId))) {
+                throw new IllegalArgumentException("Driver not assigned to this ride");
+            }
+        }
+
+        RideStatus old = ride.getStatus();
+        boolean allowed = isAllowedTransition(old, newStatus);
+
+        boolean isAdminOrDispatcher = actorRole != null && (actorRole.contains("ADMIN") || actorRole.contains("DISPATCHER"));
+        boolean adminFastPath = false;
+        if (!allowed && isAdminOrDispatcher && newStatus == RideStatus.COMPLETED && isFastCompleteEligible(old)) {
+            // Admin/dispatcher fast path to complete
+            allowed = true;
+            adminFastPath = true;
+        }
+
+        if (!allowed) {
+            throw new IllegalArgumentException("Invalid status transition: " + old + " -> " + newStatus);
+        }
+
+        ride.setStatus(newStatus);
+        Ride saved = rideRepository.save(ride);
+        rideAuditService.auditChange(saved, "status", old, newStatus, actorRole != null ? actorRole : "SYSTEM");
+        if (adminFastPath) {
+            rideAuditService.auditChange(saved, "admin_fast_complete", old, newStatus, actorRole != null ? actorRole : "SYSTEM");
+        }
+        if (notes != null && !notes.isBlank()) {
+            rideAuditService.auditChange(saved, "notes", "", notes, actorRole != null ? actorRole : "SYSTEM");
+        }
+        return saved;
+    }
+
+    private boolean isAllowedTransition(RideStatus from, RideStatus to) {
+        if (from == null) return to == RideStatus.SCHEDULED || to == RideStatus.ASSIGNED; // initialization
+        switch (from) {
+            case SCHEDULED:
+                return to == RideStatus.ASSIGNED || to == RideStatus.CANCELLED;
+            case ASSIGNED:
+                return to == RideStatus.EN_ROUTE_PICKUP || to == RideStatus.CANCELLED || to == RideStatus.NO_SHOW;
+            case EN_ROUTE_PICKUP:
+                return to == RideStatus.ARRIVED_PICKUP || to == RideStatus.CANCELLED || to == RideStatus.NO_SHOW;
+            case ARRIVED_PICKUP:
+                return to == RideStatus.EN_ROUTE_DROPOFF || to == RideStatus.CANCELLED;
+            case EN_ROUTE_DROPOFF:
+                return to == RideStatus.ARRIVED_DROPOFF || to == RideStatus.CANCELLED;
+            case ARRIVED_DROPOFF:
+                return to == RideStatus.COMPLETED || to == RideStatus.CANCELLED;
+            case COMPLETED:
+            case CANCELLED:
+            case NO_SHOW:
+                return false;
+            default:
+                return false;
+        }
+    }
+
+    private boolean isFastCompleteEligible(RideStatus from) {
+        switch (from) {
+            case ASSIGNED:
+            case EN_ROUTE_PICKUP:
+            case ARRIVED_PICKUP:
+            case EN_ROUTE_DROPOFF:
+            case ARRIVED_DROPOFF:
+                return true;
+            default:
+                return false;
+        }
     }
 
     @Transactional

@@ -4,19 +4,21 @@ import com.mediroute.entity.AppUser;
 import com.mediroute.repository.UserRepo;
 import org.springframework.boot.CommandLineRunner;
 import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Profile;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
 import java.util.List;
 
 @Configuration
+@Profile("dev")
 public class AdminBootstrap {
     @Bean CommandLineRunner seedAdmin(UserRepo users, PasswordEncoder enc) {
         return args -> {
             if (!users.existsByEmail("admin@mediroute.com")) {
                 var u = new AppUser();
                 u.setEmail("admin@mediroute.com");
-                u.setPasswordHash(enc.encode("admin123"));
+                u.setPasswordHash(enc.encode("zadmin123"));
                 u.setRoleList(List.of("ADMIN","DISPATCHER"));
                 u.setActive(true);
                 users.save(u);

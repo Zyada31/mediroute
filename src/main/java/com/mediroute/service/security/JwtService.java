@@ -29,11 +29,25 @@ public class JwtService {
     public JwtService(
             AppProps props,
             @Value("${app.security.issuer:https://mediroute.local}") String issuer,
-            @Value("${jwt.private-key-pem}") String privatePem,
-            @Value("${jwt.public-key-pem}") String publicPem
+            @Value("${jwt.private-key-pem:}") String privatePem,
+            @Value("${jwt.public-key-pem:}") String publicPem
     ) {
-        RSAPrivateKey priv = PemUtils.readPrivateKey(privatePem);
-        RSAPublicKey pub = PemUtils.readPublicKey(publicPem);
+        RSAPrivateKey priv;
+        RSAPublicKey pub;
+        if (privatePem == null || privatePem.isBlank() || publicPem == null || publicPem.isBlank()) {
+            try {
+                java.security.KeyPairGenerator kpg = java.security.KeyPairGenerator.getInstance("RSA");
+                kpg.initialize(2048);
+                java.security.KeyPair kp = kpg.generateKeyPair();
+                priv = (RSAPrivateKey) kp.getPrivate();
+                pub = (RSAPublicKey) kp.getPublic();
+            } catch (Exception e) {
+                throw new IllegalStateException("Failed to generate ephemeral RSA keys for JWT in absence of configured PEM", e);
+            }
+        } else {
+            priv = PemUtils.readPrivateKey(privatePem);
+            pub = PemUtils.readPublicKey(publicPem);
+        }
 
         RSAKey rsa = new RSAKey.Builder(pub)
                 .privateKey(priv)

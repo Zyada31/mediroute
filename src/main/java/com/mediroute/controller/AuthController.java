@@ -159,7 +159,13 @@ public class AuthController {
 
         setRefreshCookie(res, next.getJti(), (int) Duration.ofDays(ttlDays).toSeconds());
 
-        String access = jwt.createAccessToken((JwtService.AppUserLike) user);
+        String access = jwt.createAccessToken(new com.mediroute.service.security.AppUserView() {
+            @Override public Long getId() { return user.getId(); }
+            @Override public String getEmail() { return user.getEmail(); }
+            @Override public java.util.List<String> getRoles() { return user.getRoleList(); }
+            @Override public Long getDriverId() { return user.getDriverId(); }
+            @Override public String getName() { return null; }
+        });
         return ResponseEntity.ok(new LoginRes(access, user.getRoles(), user.getDriverId()));
     }
 

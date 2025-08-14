@@ -1,6 +1,7 @@
 package com.mediroute.service.ride;
 
 import com.mediroute.dto.*;
+import com.mediroute.config.AppProps;
 import com.mediroute.entity.AssignmentAudit;
 import com.mediroute.entity.Driver;
 import com.mediroute.entity.Patient;
@@ -31,6 +32,7 @@ public class EnhancedMedicalTransportOptimizer {
     private final DriverRepository driverRepository;
     private final OsrmDistanceService distanceService; // reserved for future distance-based scoring enhancements
     private final AssignmentAuditRepository assignmentAuditRepository;
+    private final AppProps appProps;
 
     // Medical transport constants
     private static final int SHORT_APPOINTMENT_THRESHOLD = 15;
@@ -164,6 +166,23 @@ public class EnhancedMedicalTransportOptimizer {
         for (Map.Entry<String, List<Ride>> entry : categorization.getOneWayRidesByVehicleType().entrySet()) {
             totalResult.merge(optimizeRidesForVehicleType(entry.getValue(), drivers, batchId, false, entry.getKey()));
             drivers = getAvailableDriversAfterAssignment(drivers, totalResult.getAssignedDriverIds());
+        }
+
+        // Optional relaxed second pass for remaining unassigned rides
+        if (Boolean.TRUE.equals(appProps.getOptimizer().isRelaxForUnassigned())) {
+            Set<Long> alreadyAssigned = totalResult.getDriverAssignments().values().stream()
+                    .flatMap(java.util.Collection::stream)
+                    .collect(java.util.stream.Collectors.toSet());
+            List<Ride> remaining = rides.stream()
+                    .filter(r -> r.getId() != null && !alreadyAssigned.contains(r.getId()))
+                    .toList();
+            if (!remaining.isEmpty()) {
+                log.info("🟡 Relaxed second pass enabled. Attempting to assign {} remaining rides", remaining.size());
+                OptimizationResult relaxed = performRelaxedAssignment(remaining, drivers, batchId,
+                        appProps.getOptimizer().getRelaxMaxPerDriver());
+                totalResult.merge(relaxed);
+                drivers = getAvailableDriversAfterAssignment(drivers, totalResult.getAssignedDriverIds());
+            }
         }
 
         createDetailedAuditRecord(rides, totalResult, categorization, batchId);
@@ -431,7 +450,7 @@ public class EnhancedMedicalTransportOptimizer {
                 .filter(driver -> canDriverHandlePatient(driver, ride.getPatient()))
                 .filter(driver -> hasRequiredSkills(driver, ride.getRequiredSkills()))
                 .filter(driver -> isDriverAvailableForRide(driver, ride))
-                .filter(driver -> calculateDistanceToPickup(driver, ride) <= MAX_PICKUP_DISTANCE_KM)
+                .filter(driver -> calculateDistanceToPickup(driver, ride) <= appProps.getOptimizer().getMaxPickupDistanceKm())
                 .min(Comparator.comparingDouble(driver -> calculateDriverScore(driver, ride)))
                 .orElse(null);
     }
@@ -544,6 +563,45 @@ public class EnhancedMedicalTransportOptimizer {
         return allDrivers.stream()
                 .filter(driver -> !assignedDriverIds.contains(driver.getId()))
                 .collect(Collectors.toList());
+    }
+
+    private OptimizationResult performRelaxedAssignment(List<Ride> rides, List<Driver> drivers, String batchId, int maxPerDriver) {
+        OptimizationResult res = new OptimizationResult();
+        res.setBatchId(batchId);
+        res.setTotalRides(rides.size());
+
+        Map<Long, Integer> driverRelaxedCounts = new HashMap<>();
+
+        for (Ride ride : rides) {
+            try {
+                Driver best = drivers.stream()
+                        .filter(d -> canDriverHandlePatient(d, ride.getPatient()))
+                        .filter(d -> hasRequiredSkills(d, ride.getRequiredSkills()))
+                        .filter(d -> isDriverAvailableForRide(d, ride))
+                        // Ignore MAX_PICKUP_DISTANCE_KM constraint in relaxed mode
+                        .min(Comparator.comparingDouble(d -> calculateDistanceToPickup(d, ride)))
+                        .orElse(null);
+
+                if (best != null) {
+                    int used = driverRelaxedCounts.getOrDefault(best.getId(), 0);
+                    if (used < Math.max(0, maxPerDriver)) {
+                        assignRideToDriver(ride, best, best, batchId, "RELAXED_LONG_DEADHEAD");
+                        res.addAssignedRide(best.getId(), ride.getId());
+                        driverRelaxedCounts.put(best.getId(), used + 1);
+                        log.info("🟡 Relaxed assign ride {} -> driver {} (deadhead ~{:.1f}km)",
+                                ride.getId(), best.getName(), calculateDistanceToPickup(best, ride));
+                    } else {
+                        res.addUnassignedRide(ride.getId(), "Relaxed cap reached for driver");
+                    }
+                } else {
+                    res.addUnassignedRide(ride.getId(), "No feasible driver under relaxed rules");
+                }
+            } catch (Exception e) {
+                log.warn("Relaxed assignment error for ride {}: {}", ride.getId(), e.getMessage());
+                res.addUnassignedRide(ride.getId(), "Relaxed assignment error: " + e.getMessage());
+            }
+        }
+        return res;
     }
 
     private String buildUnassignedReason(Ride ride, List<Driver> drivers) {
