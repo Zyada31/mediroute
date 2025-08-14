@@ -38,5 +38,5 @@ keys/
 .env
 .env.*
 !.env.example
-
+/var
 /osrm-data
