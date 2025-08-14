@@ -4,6 +4,12 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.cache.CacheManager;
 import org.springframework.cache.concurrent.ConcurrentMapCacheManager;
+import org.springframework.data.redis.connection.RedisConnectionFactory;
+import org.springframework.data.redis.cache.RedisCacheConfiguration;
+import org.springframework.data.redis.cache.RedisCacheManager;
+import org.springframework.data.redis.serializer.GenericJackson2JsonRedisSerializer;
+import org.springframework.data.redis.serializer.StringRedisSerializer;
+import org.springframework.data.redis.serializer.RedisSerializationContext.SerializationPair;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -31,9 +37,21 @@ public class WebConfig implements WebMvcConfigurer {
     }
 
     @Bean
-    @ConditionalOnMissingBean(CacheManager.class)
-    public CacheManager cacheManager() {
+    public CacheManager cacheManager(org.springframework.beans.factory.ObjectProvider<RedisConnectionFactory> redisFactoryProvider) {
+        var redisFactory = redisFactoryProvider.getIfAvailable();
+        var cacheNames = java.util.Set.of("geo:addr", "osrm:distance");
+        if (redisFactory != null) {
+            RedisCacheConfiguration defaults = RedisCacheConfiguration.defaultCacheConfig()
+                    .serializeKeysWith(SerializationPair.fromSerializer(new StringRedisSerializer()))
+                    .serializeValuesWith(SerializationPair.fromSerializer(new GenericJackson2JsonRedisSerializer()));
+            return RedisCacheManager.builder(redisFactory)
+                    .cacheDefaults(defaults)
+                    .initialCacheNames(cacheNames)
+                    .build();
+        }
         // Fallback in-memory cache if Redis isn't configured/running
-        return new ConcurrentMapCacheManager("osrm:distance");
+        ConcurrentMapCacheManager cm = new ConcurrentMapCacheManager();
+        cm.setCacheNames(cacheNames);
+        return cm;
     }
 }

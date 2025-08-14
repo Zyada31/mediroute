@@ -53,7 +53,8 @@ services:
     profiles: ["prep"]
     environment:
       MAP_NAME: ${MAP_NAME:-colorado-latest}
-      OSRM_DATA_DIR: ${OSRM_DATA_DIR:-/data}
+      # Inside the container always use /data (mounted below)
+      OSRM_DATA_DIR: /data
       # PBF_URL can be overridden; if empty, it will be computed in command from MAP_NAME
       PBF_URL: ${PBF_URL:-}
     volumes:
@@ -75,7 +76,8 @@ services:
     profiles: ["prep"]
     environment:
       MAP_NAME: ${MAP_NAME:-colorado-latest}
-      OSRM_DATA_DIR: ${OSRM_DATA_DIR:-/data}
+      # Inside the container always use /data (mounted below)
+      OSRM_DATA_DIR: /data
     volumes:
       - ${OSRM_DATA_DIR:-./osrm-data}:/data
     entrypoint: ["sh","-lc"]
