@@ -227,20 +227,10 @@ public class DriverService {
     // FIXED: Correct time handling
     private void updateDriverScheduling(Driver driver, DriverDTO dto) {
         if (dto.getShiftStart() != null) {
-            // Handle both LocalDateTime and LocalTime cases
-            if (dto.getShiftStart() instanceof LocalTime) {
-                driver.setShiftStart((dto.getShiftStart()));
-            } else {
-                // Assume it's already LocalTime or can be converted
-                driver.setShiftStart(dto.getShiftStart());
-            }
+            driver.setShiftStart(dto.getShiftStart());
         }
         if (dto.getShiftEnd() != null) {
-            if (dto.getShiftEnd() instanceof LocalTime) {
-                driver.setShiftEnd((dto.getShiftEnd()));
-            } else {
-                driver.setShiftEnd(dto.getShiftEnd());
-            }
+            driver.setShiftEnd(dto.getShiftEnd());
         }
         if (dto.getMaxDailyRides() != null) {
             driver.setMaxDailyRides(dto.getMaxDailyRides());

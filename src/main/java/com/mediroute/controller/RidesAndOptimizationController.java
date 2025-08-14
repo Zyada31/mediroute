@@ -1,4 +1,3 @@
-// Updated UnifiedController with proper optimization integration
 package com.mediroute.controller;
 
 import com.mediroute.dto.*;
@@ -29,32 +28,41 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.multipart.MultipartFile;
+import org.springframework.web.server.ResponseStatusException;
+import org.springframework.security.core.Authentication;
 
 import java.io.IOException;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
-import java.time.ZoneId;
 import java.util.List;
+import java.util.Map;
+
+import static org.springframework.http.HttpStatus.INTERNAL_SERVER_ERROR;
 
 @CrossOrigin(origins = {"http://localhost:3000", "https://app.mediroute.com"})
 @RestController
 @RequestMapping("/api/v1")
 @RequiredArgsConstructor
 @Slf4j
-@Tag(name = "MediRoute API", description = "Medical transport management operations")
-public class UnifiedController {
+/**
+ * Rides & Optimization Controller
+ * Structure:
+ * - File upload & parse endpoints
+ * - Optimization submit endpoints
+ * - Ride listing/statistics endpoints
+ * - Ride status updates (migrated from RideStatusController)
+ */
+@Tag(name = "Rides", description = "Rides ingestion, listing, statistics, and optimization")
+public class RidesAndOptimizationController {
 
     private final com.mediroute.service.ride.RideService rideService;
     private final ExcelParserService excelParserService;
-    // Removed unused rideRepository
     private final DriverRepository driverRepository;
     private final RideAuditRepository rideAuditRepository;
     private final AssignmentAuditRepository assignmentAuditRepository;
     private final DriverService driverService;
     private final AssignmentSummaryService summaryService;
-    private final OptimizationIntegrationService optimizationService; // Use integration service
-
-    // ========== Enhanced File Upload Endpoints ==========
+    private final OptimizationIntegrationService optimizationService;
 
     @Operation(summary = "Upload Excel/CSV file", description = "Parse and import rides from Excel or CSV file")
     @ApiResponses(value = {
@@ -71,11 +79,11 @@ public class UnifiedController {
             @RequestParam(name = "assignmentDate", required = false)
             @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate assignmentDate) throws IOException {
 
-        log.info("📥 Received file upload: {}", file.getOriginalFilename());
+        log.info("Received file upload: {}", file.getOriginalFilename());
 
         if (assignmentDate == null) {
             assignmentDate = LocalDate.now().plusDays(1);
-            log.info("📅 No assignmentDate provided, defaulting to {}", assignmentDate);
+            log.info("No assignmentDate provided, defaulting to {}", assignmentDate);
         }
 
         ParseResult result = excelParserService.parseExcelWithMedicalFeatures(file, assignmentDate, false);
@@ -94,7 +102,7 @@ public class UnifiedController {
             @RequestParam(name = "assignmentDate", required = false)
             @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate assignmentDate) throws IOException {
 
-        log.info("📥 Received file upload with optimization: {}", file.getOriginalFilename());
+        log.info("Received file upload with optimization: {}", file.getOriginalFilename());
 
         if (assignmentDate == null) {
             assignmentDate = LocalDate.now().plusDays(1);
@@ -105,8 +113,6 @@ public class UnifiedController {
 
         return ResponseEntity.ok(result);
     }
-
-    // ========== Enhanced Optimization Endpoints ==========
 
     @Operation(summary = "Optimize rides for date", description = "Run optimization on all unassigned rides for a specific date")
     @PostMapping("/optimization/date/{date}")
@@ -127,7 +133,7 @@ public class UnifiedController {
             return ResponseEntity.ok(result);
 
         } catch (Exception e) {
-            log.error("❌ Optimization failed for date {}: {}", date, e.getMessage(), e);
+            log.error("Optimization failed for date {}: {}", date, e.getMessage(), e);
 
             OptimizationResult errorResult = OptimizationResult.builder()
                     .optimizationRan(false)
@@ -155,7 +161,7 @@ public class UnifiedController {
             return ResponseEntity.ok(result);
 
         } catch (Exception e) {
-            log.error("❌ Specific ride optimization failed: {}", e.getMessage(), e);
+            log.error("Specific ride optimization failed: {}", e.getMessage(), e);
 
             OptimizationResult errorResult = OptimizationResult.builder()
                     .optimizationRan(false)
@@ -183,7 +189,7 @@ public class UnifiedController {
             return ResponseEntity.ok(result);
 
         } catch (Exception e) {
-            log.error("❌ Time range optimization failed: {}", e.getMessage(), e);
+            log.error("Time range optimization failed: {}", e.getMessage(), e);
 
             OptimizationResult errorResult = OptimizationResult.builder()
                     .optimizationRan(false)
@@ -194,8 +200,6 @@ public class UnifiedController {
             return ResponseEntity.ok(errorResult);
         }
     }
-
-    // ========== Data Retrieval Endpoints ==========
 
     @Operation(
             summary = "Get rides by date",
@@ -212,7 +216,7 @@ public class UnifiedController {
             @Parameter(description = "Sort directive: field,dir (asc|desc)", example = "pickupTime,asc")
             @RequestParam(defaultValue = "pickupTime,asc") String sort) {
 
-        log.info("📋 Fetching rides for date: {}", date);
+        log.info("Fetching rides for date: {}", date);
 
         try {
             String[] sortParts = sort.split(",");
@@ -227,8 +231,7 @@ public class UnifiedController {
             return ResponseEntity.ok(resp);
         } catch (Exception e) {
             log.error("Error fetching rides for date {}: {}", date, e.getMessage(), e);
-            var empty = new com.mediroute.dto.PageResponse<RideDetailDTO>(List.of(), page, size, 0, 0, sort);
-            return ResponseEntity.ok(empty);
+            throw new ResponseStatusException(INTERNAL_SERVER_ERROR, "Failed to fetch rides");
         }
     }
 
@@ -247,7 +250,7 @@ public class UnifiedController {
             @Parameter(description = "Sort directive: field,dir (asc|desc)", example = "priority,desc")
             @RequestParam(defaultValue = "priority,desc") String sort) {
 
-        log.info("📋 Fetching unassigned rides for date: {}", date);
+        log.info("Fetching unassigned rides for date: {}", date);
 
         try {
             String[] sortParts = sort.split(",");
@@ -262,8 +265,7 @@ public class UnifiedController {
             return ResponseEntity.ok(resp);
         } catch (Exception e) {
             log.error("Error fetching unassigned rides for date {}: {}", date, e.getMessage(), e);
-            var empty = new com.mediroute.dto.PageResponse<RideDetailDTO>(List.of(), page, size, 0, 0, sort);
-            return ResponseEntity.ok(empty);
+            throw new ResponseStatusException(INTERNAL_SERVER_ERROR, "Failed to fetch unassigned rides");
         }
     }
 
@@ -280,7 +282,7 @@ public class UnifiedController {
             return ResponseEntity.ok(summaryService.getSummaryForDate(start, end));
         } catch (Exception e) {
             log.error("Error getting daily summary for {}: {}", date, e.getMessage(), e);
-            return ResponseEntity.ok(List.of());
+            throw new ResponseStatusException(INTERNAL_SERVER_ERROR, "Failed to get daily summary");
         }
     }
 
@@ -293,11 +295,9 @@ public class UnifiedController {
             return ResponseEntity.ok(drivers);
         } catch (Exception e) {
             log.error("Error getting qualified drivers: {}", e.getMessage(), e);
-            return ResponseEntity.ok(List.of());
+            throw new ResponseStatusException(INTERNAL_SERVER_ERROR, "Failed to get qualified drivers");
         }
     }
-
-    // ========== Audit and History Endpoints ==========
 
     @Operation(summary = "Get ride audit history", description = "Retrieve audit trail for a specific ride. Results are scoped to the caller's organization.")
     @GetMapping("/rides/{rideId}/audit")
@@ -331,7 +331,7 @@ public class UnifiedController {
                     assignmentAuditRepository.findAllOrderByAssignmentTimeDesc(com.mediroute.config.SecurityBeans.currentOrgId()));
         } catch (Exception e) {
             log.error("Error getting assignment audit logs: {}", e.getMessage(), e);
-            return ResponseEntity.ok(List.of());
+            throw new ResponseStatusException(INTERNAL_SERVER_ERROR, "Failed to get assignment audit logs");
         }
     }
 
@@ -347,11 +347,9 @@ public class UnifiedController {
                     .orElse(ResponseEntity.notFound().build());
         } catch (Exception e) {
             log.error("Error getting optimization by batch ID {}: {}", batchId, e.getMessage(), e);
-            return ResponseEntity.notFound().build();
+            throw new ResponseStatusException(INTERNAL_SERVER_ERROR, "Failed to get optimization batch");
         }
     }
-
-    // ========== Statistics Endpoints ==========
 
     @Operation(summary = "Get ride statistics", description = "Get statistical summary for rides on a specific date. Results are scoped to the caller's organization.")
     @GetMapping("/statistics/rides")
@@ -365,16 +363,7 @@ public class UnifiedController {
             return ResponseEntity.ok(stats);
         } catch (Exception e) {
             log.error("Error getting ride statistics for {}: {}", date, e.getMessage(), e);
-
-            // Return empty stats instead of error
-            RideStatisticsDTO emptyStats = RideStatisticsDTO.builder()
-                    .date(date)
-                    .totalRides(0)
-                    .assignedRides(0)
-                    .unassignedRides(0)
-                    .assignmentRate(0.0)
-                    .build();
-            return ResponseEntity.ok(emptyStats);
+            throw new ResponseStatusException(INTERNAL_SERVER_ERROR, "Failed to get ride statistics");
         }
     }
 
@@ -387,15 +376,7 @@ public class UnifiedController {
             return ResponseEntity.ok(stats);
         } catch (Exception e) {
             log.error("Error getting driver statistics: {}", e.getMessage(), e);
-
-            // Return empty stats
-            DriverStatisticsDTO emptyStats = DriverStatisticsDTO.builder()
-                    .totalActiveDrivers(0L)
-                    .wheelchairAccessibleCount(0)
-                    .stretcherCapableCount(0)
-                    .oxygenEquippedCount(0)
-                    .build();
-            return ResponseEntity.ok(emptyStats);
+            throw new ResponseStatusException(INTERNAL_SERVER_ERROR, "Failed to get driver statistics");
         }
     }
 
@@ -411,19 +392,36 @@ public class UnifiedController {
             return ResponseEntity.ok(stats);
         } catch (Exception e) {
             log.error("Error getting optimization statistics for {}: {}", date, e.getMessage(), e);
-
-            // Return empty stats
-            OptimizationIntegrationService.OptimizationStats emptyStats =
-                    OptimizationIntegrationService.OptimizationStats.builder()
-                            .date(date)
-                            .totalRides(0)
-                            .assignedRides(0)
-                            .unassignedRides(0)
-                            .assignmentRate(0.0)
-                            .build();
-            return ResponseEntity.ok(emptyStats);
+            throw new ResponseStatusException(INTERNAL_SERVER_ERROR, "Failed to get optimization statistics");
         }
     }
 
-    // Legacy endpoints removed
+    /**
+     * Update the status of a ride. Drivers may update their own assigned rides; dispatch/admin can update any.
+     */
+    public record StatusUpdate(String status, String notes) {}
+
+    @PostMapping("/rides/{id}/status")
+    @PreAuthorize("hasAnyRole('DRIVER','DISPATCHER','ADMIN')")
+    public ResponseEntity<?> updateStatus(@PathVariable Long id, @RequestBody StatusUpdate update, Authentication auth) {
+        String roleString = auth.getAuthorities().toString();
+        Long driverId = null;
+        Object details = auth.getDetails();
+        if (details instanceof Map<?,?> map && map.get("driverId") != null) {
+            try { driverId = Long.valueOf(map.get("driverId").toString()); } catch (Exception ignored) {}
+        }
+        try {
+            com.mediroute.dto.RideStatus newStatus = com.mediroute.dto.RideStatus.valueOf(update.status());
+            com.mediroute.entity.Ride updated = rideService.updateStatus(id, newStatus, driverId, roleString, update.notes());
+            return ResponseEntity.ok(Map.of("id", updated.getId(), "status", updated.getStatus()));
+        } catch (IllegalArgumentException e) {
+            throw new ResponseStatusException(org.springframework.http.HttpStatus.BAD_REQUEST, e.getMessage());
+        } catch (com.mediroute.exceptions.RideAssignmentException e) {
+            throw new ResponseStatusException(org.springframework.http.HttpStatus.CONFLICT, e.getMessage());
+        } catch (Exception e) {
+            throw new ResponseStatusException(org.springframework.http.HttpStatus.INTERNAL_SERVER_ERROR, "Failed to update ride status");
+        }
+    }
 }
+
+

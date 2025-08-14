@@ -83,10 +83,10 @@ public class DriverDTO {
     @Max(20)
     private Integer maxDailyRides;
 
-    @Schema(description = "Shift start time")
+    @Schema(description = "Shift start time", example = "08:00")
     private LocalTime shiftStart;
 
-    @Schema(description = "Shift end time")
+    @Schema(description = "Shift end time", example = "17:00")
     private LocalTime shiftEnd;
 
     // Location
