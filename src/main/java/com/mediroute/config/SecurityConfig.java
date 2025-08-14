@@ -44,7 +44,8 @@ public class SecurityConfig {
                 .requestMatchers(
                     "/", "/index.html", "/public/**", "/static/**",
                     "/actuator/health", "/actuator/info",
-                    "/v3/api-docs/**", "/swagger-ui/**", "/swagger-ui.html"
+                    "/v3/api-docs/**", "/api-docs", "/api-docs/**",
+                    "/swagger-ui/**", "/swagger-ui.html"
                 ).permitAll()
 
                 // Public auth endpoints (if present)

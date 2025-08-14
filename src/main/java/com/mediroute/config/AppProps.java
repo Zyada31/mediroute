@@ -12,9 +12,11 @@ public class AppProps {
 
     private Security security = new Security();
     private Jwt jwt = new Jwt();
+    private Optimizer optimizer = new Optimizer();
 
     public Security getSecurity() { return security; }
     public Jwt getJwt() { return jwt; }
+    public Optimizer getOptimizer() { return optimizer; }
 
     public static class Security {
         private String issuer = "https://mediroute.local";
@@ -50,5 +52,21 @@ public class AppProps {
         public void setPrivateKeyPem(String privateKeyPem) { this.privateKeyPem = privateKeyPem; }
         public String getPublicKeyPem() { return publicKeyPem; }
         public void setPublicKeyPem(String publicKeyPem) { this.publicKeyPem = publicKeyPem; }
+    }
+
+    public static class Optimizer {
+        /** If true, run a relaxed second pass for unassigned rides. */
+        private boolean relaxForUnassigned = false;
+        /** Cap additional relaxed assignments per driver in second pass. */
+        private int relaxMaxPerDriver = 2;
+        /** Max pickup distance (km) in normal pass. */
+        private double maxPickupDistanceKm = 50.0;
+
+        public boolean isRelaxForUnassigned() { return relaxForUnassigned; }
+        public void setRelaxForUnassigned(boolean relaxForUnassigned) { this.relaxForUnassigned = relaxForUnassigned; }
+        public int getRelaxMaxPerDriver() { return relaxMaxPerDriver; }
+        public void setRelaxMaxPerDriver(int relaxMaxPerDriver) { this.relaxMaxPerDriver = relaxMaxPerDriver; }
+        public double getMaxPickupDistanceKm() { return maxPickupDistanceKm; }
+        public void setMaxPickupDistanceKm(double v) { this.maxPickupDistanceKm = v; }
     }
 }

@@ -31,6 +31,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.stream.Collectors;
 
@@ -260,6 +261,27 @@ public class DriverController {
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                     .body(createErrorResponse("INTERNAL_ERROR", "Failed to create driver"));
         }
+    }
+
+    @PostMapping("/batch")
+    @PreAuthorize("hasAnyRole('ADMIN','DISPATCHER')")
+    public ResponseEntity<?> createDrivers(@Validated(DriverDTO.Create.class) @RequestBody List<DriverDTO> dtos) {
+        List<DriverDTO> created = new ArrayList<>();
+        List<ErrorResponse> errors = new ArrayList<>();
+        for (DriverDTO dto : dtos) {
+            try {
+                Driver saved = driverService.createOrUpdateDriver(dto, false);
+                created.add(DriverDTO.fromEntity(saved));
+            } catch (IllegalStateException e) {
+                errors.add(new ErrorResponse("DUPLICATE_DRIVER", e.getMessage(), LocalDateTime.now()));
+            } catch (IllegalArgumentException e) {
+                errors.add(new ErrorResponse("INVALID_DATA", e.getMessage(), LocalDateTime.now()));
+            } catch (Exception e) {
+                errors.add(new ErrorResponse("INTERNAL_ERROR", "Failed to create driver: " + dto.getName(), LocalDateTime.now()));
+            }
+        }
+        return ResponseEntity.status(errors.isEmpty() ? HttpStatus.CREATED : HttpStatus.MULTI_STATUS)
+                .body(Map.of("created", created, "errors", errors));
     }
 
     @PutMapping("/{id}")

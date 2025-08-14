@@ -50,8 +50,15 @@ public class OsrmDistanceService implements DistanceService {
      */
     public boolean isOsrmHealthy() {
         try {
-            String body = restTemplate.getForObject(osrmBaseUrl, String.class);
-            return body != null;
+            // Probe a lightweight valid endpoint; Denver coords within our sample map
+            String url = osrmBaseUrl + "/nearest/v1/driving/-104.9903,39.7392";
+            restTemplate.getForObject(url, String.class);
+            return true;
+        } catch (org.springframework.web.client.HttpStatusCodeException e) {
+            // Any 4xx means OSRM responded → consider reachable
+            if (e.getStatusCode().is4xxClientError()) return true;
+            log.warn("OSRM health check failed at {}: {}", osrmBaseUrl, e.getMessage());
+            return false;
         } catch (Exception e) {
             log.warn("OSRM health check failed at {}: {}", osrmBaseUrl, e.getMessage());
             return false;
