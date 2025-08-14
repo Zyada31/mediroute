@@ -59,8 +59,9 @@ public class EnhancedMedicalTransportOptimizer {
         }
 
         String batchId = generateBatchId();
-        log.info("🏥 Starting enhanced medical transport optimization for {} rides with {} drivers (Batch: {})",
-                fullyLoadedRides.size(), availableDrivers.size(), batchId);
+        boolean osrmOk = distanceService.isOsrmHealthy();
+        log.info("🏥 Starting enhanced medical transport optimization for {} rides with {} drivers (Batch: {}, OSRM healthy: {})",
+                fullyLoadedRides.size(), availableDrivers.size(), batchId, osrmOk);
 
         try {
             return performMedicalTransportOptimization(fullyLoadedRides, availableDrivers, batchId);
@@ -340,8 +341,9 @@ public class EnhancedMedicalTransportOptimizer {
                     log.debug("✅ Ride {} assigned to driver {} ({})", ride.getId(), bestDriver.getName(),
                             isRoundTrip ? "round-trip" : "one-way");
                 } else {
-                    result.addUnassignedRide(ride.getId(), "No compatible driver available");
-                    log.warn("❌ Could not assign ride {}", ride.getId());
+                    String reason = buildUnassignedReason(ride, drivers);
+                    result.addUnassignedRide(ride.getId(), reason);
+                    log.warn("❌ Could not assign ride {}. Reason: {}", ride.getId(), reason);
                 }
             } catch (Exception e) {
                 log.error("Error assigning ride {}: {}", ride.getId(), e.getMessage());
@@ -542,6 +544,23 @@ public class EnhancedMedicalTransportOptimizer {
         return allDrivers.stream()
                 .filter(driver -> !assignedDriverIds.contains(driver.getId()))
                 .collect(Collectors.toList());
+    }
+
+    private String buildUnassignedReason(Ride ride, List<Driver> drivers) {
+        List<String> reasons = new ArrayList<>();
+        long compatibleByPatient = drivers.stream().filter(d -> canDriverHandlePatient(d, ride.getPatient())).count();
+        if (compatibleByPatient == 0) reasons.add("No driver matches patient medical needs");
+
+        long withinShift = drivers.stream().filter(d -> isDriverAvailableForRide(d, ride)).count();
+        if (withinShift == 0) reasons.add("No driver available (inactive/training/shift)");
+
+        long withinDistance = drivers.stream()
+                .filter(d -> calculateDistanceToPickup(d, ride) <= MAX_PICKUP_DISTANCE_KM)
+                .count();
+        if (withinDistance == 0) reasons.add("All drivers too far from pickup");
+
+        if (reasons.isEmpty()) reasons.add("No compatible driver available");
+        return String.join("; ", reasons);
     }
 
     @Transactional

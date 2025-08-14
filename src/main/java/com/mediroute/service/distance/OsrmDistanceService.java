@@ -45,6 +45,19 @@ public class OsrmDistanceService implements DistanceService {
         }
     }
 
+    /**
+     * Lightweight health check to verify OSRM is reachable.
+     */
+    public boolean isOsrmHealthy() {
+        try {
+            String body = restTemplate.getForObject(osrmBaseUrl, String.class);
+            return body != null;
+        } catch (Exception e) {
+            log.warn("OSRM health check failed at {}: {}", osrmBaseUrl, e.getMessage());
+            return false;
+        }
+    }
+
 
     @Override
     public double[][] getDistanceMatrix(List<String> locations) {

@@ -13,11 +13,12 @@ import java.util.List;
 public class AdminBootstrap {
     @Bean CommandLineRunner seedAdmin(UserRepo users, PasswordEncoder enc) {
         return args -> {
-            if (!users.existsByEmail("admin@mediroute.local")) {
+            if (!users.existsByEmail("admin@mediroute.com")) {
                 var u = new AppUser();
-                u.setEmail("admin@mediroute.local");
-                u.setPasswordHash(enc.encode("changeMe123!"));
-                u.setRoles(String.valueOf(List.of("ADMIN","DISPATCHER")));
+                u.setEmail("admin@mediroute.com");
+                u.setPasswordHash(enc.encode("admin123"));
+                u.setRoleList(List.of("ADMIN","DISPATCHER"));
+                u.setActive(true);
                 users.save(u);
             }
         };
